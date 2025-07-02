@@ -7,12 +7,14 @@ import numpy as np
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
+RESIZE_SIZE = (64, 64, 64)
 SPATIAL_SIZE = (64, 64, 64)
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
                  data_transforms: dict=None, remain_nums: int = None,
-                 val_scale: float=0.2, shuffle: bool=False, spatial_size=SPATIAL_SIZE,
+                 val_scale: float=0.2, shuffle: bool=False,
+                 resize_size=RESIZE_SIZE, spatial_size=SPATIAL_SIZE,
                  num_workers=4, num_workers_loader=0) -> None:
         """
         实例化类，注意：DataReader只支持*.nii.gz后缀的文件
@@ -24,6 +26,8 @@ class DataReader:
         :param remain_nums: 保留文件数量（训练集+验证集）
         :param val_scale: 验证集占数据集的百分比，范围(0, 1)
         :param shuffle: 是否打乱顺序
+        :param resize_size: resized的大小
+        :param spatial_size: spatial_size参数
         :param num_workers: CacheDataset的加载线程数
         :param num_workers_loader: DataLoader的加载线程数
         """
@@ -31,6 +35,7 @@ class DataReader:
         if self.val_scale <= 0 or self.val_scale >= 1:
             raise ValueError('val_scale must be in (0, 1)')
 
+        self.resize_size = resize_size
         self.spatial_size = spatial_size
         self.num_workers = num_workers
         self.num_workers_loader = num_workers_loader
@@ -73,7 +78,7 @@ class DataReader:
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.spatial_size),
+                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size),
 
                 transforms.RandCropByPosNegLabeld(
                     keys=['image', 'label'],
@@ -107,7 +112,7 @@ class DataReader:
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.spatial_size)
+                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size)
             ]),
             'test': transforms.Compose([
                 transforms.LoadImaged(keys='image'),
@@ -123,7 +128,7 @@ class DataReader:
                     clip=True,
                 ),
                 transforms.CropForegroundd(keys=['image'], source_key='image', allow_smaller=True),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.spatial_size)
+                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size)
             ])
         }
 
@@ -146,9 +151,9 @@ class DataReader:
         if target not in self.data_transforms:
             raise ValueError("target must be in ['train', 'valid', 'test']")
 
-        transforms = self.data_transforms[target]
+        data_transforms = self.data_transforms[target]
         data_files = self.data_files[target]
-        self.data_cache[target] = CacheDataset(data_files, transforms, num_workers=self.num_workers)
+        self.data_cache[target] = CacheDataset(data_files, data_transforms, num_workers=self.num_workers)
 
     def get_dataloader(self, target: str='train', batch_size: int=None) -> DataLoader:
         if target not in self.data_cache:
