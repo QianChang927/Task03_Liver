@@ -8,7 +8,8 @@ from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
 RESIZE_SIZE = (64, 64, 64)
-SPATIAL_SIZE = (64, 64, 64)
+SPATIAL_SIZE = (48, 48, 48)
+
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
@@ -78,7 +79,6 @@ class DataReader:
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size),
 
                 transforms.RandCropByPosNegLabeld(
                     keys=['image', 'label'],
@@ -87,7 +87,7 @@ class DataReader:
                     spatial_size=self.spatial_size,
                     pos=1,
                     neg=1,
-                    num_samples=4
+                    num_samples=8
                 ),
                 transforms.RandAffined(
                     keys=['image', 'label'],
@@ -96,7 +96,8 @@ class DataReader:
                     spatial_size=self.spatial_size,
                     rotate_range=(0, 0, np.pi / 15),
                     scale_range=(0.1, 0.1, 0.1)
-                )
+                ),
+                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size)
             ]),
             'valid': transforms.Compose([
                 transforms.LoadImaged(keys=['image', 'label']),
