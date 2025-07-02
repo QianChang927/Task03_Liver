@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import glob
 import random
 
@@ -7,15 +8,13 @@ import numpy as np
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
-RESIZE_SIZE = (64, 64, 64)
-SPATIAL_SIZE = (48, 48, 48)
+SPATIAL_SIZE = (64, 64, 32)
 
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
                  data_transforms: dict=None, remain_nums: int = None,
                  val_scale: float=0.2, shuffle: bool=False,
-                 resize_size=RESIZE_SIZE, spatial_size=SPATIAL_SIZE,
                  num_workers=4, num_workers_loader=0) -> None:
         """
         实例化类，注意：DataReader只支持*.nii.gz后缀的文件
@@ -27,8 +26,6 @@ class DataReader:
         :param remain_nums: 保留文件数量（训练集+验证集）
         :param val_scale: 验证集占数据集的百分比，范围(0, 1)
         :param shuffle: 是否打乱顺序
-        :param resize_size: resized的大小
-        :param spatial_size: spatial_size参数
         :param num_workers: CacheDataset的加载线程数
         :param num_workers_loader: DataLoader的加载线程数
         """
@@ -36,17 +33,17 @@ class DataReader:
         if self.val_scale <= 0 or self.val_scale >= 1:
             raise ValueError('val_scale must be in (0, 1)')
 
-        self.resize_size = resize_size
-        self.spatial_size = spatial_size
         self.num_workers = num_workers
         self.num_workers_loader = num_workers_loader
 
-        self.train_images = sorted(glob.glob(os.path.join(root_dir, train_dir, '*.nii.gz')),
-                                   key=lambda x: int(re.findall(r'\d+', x)[0]))
-        self.train_labels = sorted(glob.glob(os.path.join(root_dir, label_dir, '*.nii.gz')),
-                                   key=lambda x: int(re.findall(r'\d+', x)[0]))
-        self.test_images = sorted(glob.glob(os.path.join(root_dir, test_dir, '*.nii.gz')),
-                                  key=lambda x: int(re.findall(r'\d+', x)[0]))
+        if sys.platform.startswith('win'):
+            pattern = lambda x: int(re.findall(r'\d+', x)[0])
+        else:
+            pattern = None
+
+        self.train_images = sorted(glob.glob(os.path.join(root_dir, train_dir, '*.nii.gz')), key=pattern)
+        self.train_labels = sorted(glob.glob(os.path.join(root_dir, label_dir, '*.nii.gz')), key=pattern)
+        self.test_images = sorted(glob.glob(os.path.join(root_dir, test_dir, '*.nii.gz')), key=pattern)
 
         self.train_valid_files = [{'image': image_name, 'label': label_name}
                                   for image_name, label_name in zip(self.train_images, self.train_labels)]
@@ -84,20 +81,19 @@ class DataReader:
                     keys=['image', 'label'],
                     image_key='image',
                     label_key='label',
-                    spatial_size=self.spatial_size,
+                    spatial_size=SPATIAL_SIZE,
                     pos=1,
                     neg=1,
-                    num_samples=8
+                    num_samples=4
                 ),
                 transforms.RandAffined(
                     keys=['image', 'label'],
                     mode=('bilinear', 'nearest'),
                     prob=1.0,
-                    spatial_size=self.spatial_size,
+                    spatial_size=SPATIAL_SIZE,
                     rotate_range=(0, 0, np.pi / 15),
                     scale_range=(0.1, 0.1, 0.1)
-                ),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size)
+                )
             ]),
             'valid': transforms.Compose([
                 transforms.LoadImaged(keys=['image', 'label']),
@@ -112,8 +108,7 @@ class DataReader:
                 ),
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size)
+                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest'))
             ]),
             'test': transforms.Compose([
                 transforms.LoadImaged(keys='image'),
@@ -128,8 +123,7 @@ class DataReader:
                     b_max=1.0,
                     clip=True,
                 ),
-                transforms.CropForegroundd(keys=['image'], source_key='image', allow_smaller=True),
-                transforms.Resized(keys=['image', 'label'], spatial_size=self.resize_size)
+                transforms.CropForegroundd(keys=['image'], source_key='image', allow_smaller=True)
             ])
         }
 
@@ -161,7 +155,8 @@ class DataReader:
             self.get_cache_dataset(target=target)
         if batch_size is None:
             batch_size = 2 if target == 'train' else 1
-        return DataLoader(self.data_cache[target], batch_size=batch_size, shuffle=self.shuffle, num_workers=self.num_workers_loader)
+        return DataLoader(self.data_cache[target], num_workers=self.num_workers_loader,
+                          batch_size=batch_size, shuffle=self.shuffle)
 
     def set_data_nums(self, num: int) -> None:
         """
