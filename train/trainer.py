@@ -3,9 +3,8 @@ import torch
 import warnings
 
 warnings.filterwarnings(action="ignore", category=UserWarning)
-ROI_SIZE = (64, 64, 32)
+ROI_SIZE = (48, 48, 48)
 SW_BATCH_SIZE = 4
-
 
 class Trainer:
     def __init__(self, model, loss_fn, optimizer, train_loader,
@@ -82,17 +81,26 @@ class Trainer:
                     src_dict[key] = []
                 src_dict[key].append(value)
 
-        def _display(criteria: dict, prefix: str='train') -> None:
+        def _display(criteria: dict, prefix: str='train', concat: int=2) -> None:
             """
             run的私有函数，用于输出字典内容
             :param criteria: 需要输出的字典，此处为评判标准
             :param prefix: 输出前缀
+            :param concat: 一行输出concat个键值
             """
+            cache = ''
+            i = 0
             for key, value in criteria.items():
-                print(f"{prefix} {key}: {value:.5f}")
+                i += 1
+                cache += f"{f'{prefix} {key}: {value:.5f}': <30}"
+                if i % concat == 0:
+                    print(cache)
+            if i % concat:
+                print(cache)
 
         for epoch in range(epochs):
-            print(f"{f'Epoch {epoch + 1}/{epochs}':-^50}")
+            print(f"{f'Epoch {epoch + 1}/{epochs}':-^60}")
+            print(f"learning rate: {self.optimizer.state_dict()['param_groups'][0]['lr']:.8f}")
 
             self.model.train()
             train_criteria = self.train_process(self.model, self.train_loader, self.batch_process,
@@ -143,17 +151,30 @@ class TrainerMethods:
         """
         train_step = 0
         epoch_loss = 0
+        epoch_dice = 0
+
+        def dice_coef(y_pred, y) -> float:
+            """
+            计算dice矩阵
+            :param y_pred: 预测值
+            :param y: 真实值
+            :return: 返回dice系数
+            """
+            from monai.losses import DiceLoss
+            dice_loss = DiceLoss(to_onehot_y=True, softmax=True)
+            dice = 1 - dice_loss(y_pred, y).item()
+            return dice
 
         for batch in data_loader:
             images, labels = batch_process(batch, device)
             train_step += 1
 
-            _loss = 0
+            _loss, _outputs = 0, 0
             def closure():
                 outputs = model(images)
                 loss = loss_fn(outputs, labels)
-                nonlocal _loss
-                _loss = loss.item()
+                nonlocal _loss, _outputs
+                _loss, _outputs = loss.item(), outputs
                 loss.backward()
                 return loss
 
@@ -161,10 +182,12 @@ class TrainerMethods:
             optimizer.step(closure)
 
             epoch_loss += _loss
+            epoch_dice += dice_coef(_outputs, labels)
             print(f"{train_step}/{len(data_loader)}, train loss: {_loss:.4f}")
 
         epoch_loss /= train_step
-        return {'loss': epoch_loss}
+        epoch_dice /= train_step
+        return {'loss': epoch_loss, 'dice': epoch_dice}
 
     @staticmethod
     def valid(model, data_loader, batch_process, scheduler,
@@ -189,11 +212,9 @@ class TrainerMethods:
 
         dice_metric = DiceMetric(include_background=False, reduction='mean')
         post_pred = transforms.Compose([
-            transforms.EnsureType(),
             transforms.AsDiscrete(argmax=True, to_onehot=model.out_channels)
         ])
         post_label = transforms.Compose([
-            transforms.EnsureType(),
             transforms.AsDiscrete(to_onehot=model.out_channels)
         ])
 
