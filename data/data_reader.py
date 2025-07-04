@@ -8,7 +8,7 @@ import numpy as np
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
-SPATIAL_SIZE = (64, 64, 48)
+SPATIAL_SIZE = (64, 64, 32)
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,

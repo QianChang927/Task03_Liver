@@ -15,7 +15,7 @@ if __name__ == '__main__':
         enable_repeat()
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    save_dir = os.path.abspath(os.path.join('.', 'checkpoint', 'size_64_64_48_roi_64_64_32_sw_4_lr_1e-03_batch_4_no_square_no_resized'))
+    save_dir = os.path.abspath(os.path.join('.', 'checkpoint', 'size_64_64_32_roi_128_128_32_sw_4_lr_1e-03_batch_4_no_square_no_resized'))
 
     data_reader = DataReader(root_dir='../Task_Dataset/Task03_Liver', shuffle=SHUFFLE,
                              train_dir='imagesTr', label_dir='labelsTr', test_dir='imagesTs',
