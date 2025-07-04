@@ -3,7 +3,7 @@ import torch
 from matplotlib import pyplot as plt
 
 if __name__ == '__main__':
-    root_dir = './checkpoint'
+    root_dir = 'checkpoint'
     expr_dir = 'size_48_roi_48_sw_4_lr_1e-03_batch_4_with_square'
 
     train_dict = torch.load(os.path.join(root_dir, expr_dir, 'train_criteria.pth'))

@@ -8,7 +8,7 @@ import numpy as np
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
-SPATIAL_SIZE = (48, 48, 48)
+SPATIAL_SIZE = (64, 64, 48)
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
@@ -75,7 +75,7 @@ class DataReader:
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE),
+                # transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE),
 
                 transforms.RandCropByPosNegLabeld(
                     keys=['image', 'label'],
@@ -109,7 +109,7 @@ class DataReader:
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE)
+                # transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE)
             ]),
             'test': transforms.Compose([
                 transforms.LoadImaged(keys='image'),
@@ -125,7 +125,7 @@ class DataReader:
                     clip=True,
                 ),
                 transforms.CropForegroundd(keys=['image'], source_key='image', allow_smaller=True),
-                transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE)
+                # transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE)
             ])
         }
 

@@ -5,7 +5,7 @@ import torch
 from monai.utils import set_determinism
 
 
-def enable_reproductive(seed=0):
+def enable_repeat(seed=0):
     random.seed(seed)
     np.random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)

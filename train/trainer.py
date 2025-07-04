@@ -3,7 +3,7 @@ import torch
 import warnings
 
 warnings.filterwarnings(action="ignore", category=UserWarning)
-ROI_SIZE = (48, 48, 48)
+ROI_SIZE = (64, 64, 32)
 SW_BATCH_SIZE = 4
 
 class Trainer:

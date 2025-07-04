@@ -1,6 +1,5 @@
-from torch import nn
 import torch
-
+from torch import nn
 
 class UNet3D(nn.Module):
     def __init__(self, in_channels: int, out_channels: int,
@@ -48,8 +47,8 @@ class DoubleConv(nn.Module):
             nn.ReLU(inplace=True)
         )
         if batch_norm:
-            self.conv1.append(nn.BatchNorm3d(mid_channels))
-            self.conv2.append(nn.BatchNorm3d(out_channels))
+            self.conv1.insert(index=1, module=nn.BatchNorm3d(mid_channels))
+            self.conv2.insert(index=1, module=nn.BatchNorm3d(out_channels))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
@@ -96,6 +95,7 @@ class OutConv(nn.Module):
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     tensor = torch.randn([8, 1, 96, 96, 96]).to(device)
-    model = UNet3D(in_channels=1, out_channels=1).to(device)
+    model = UNet3D(in_channels=1, out_channels=2, batch_norm=True).to(device)
+    print(model)
     output = model(tensor)
     print(output.shape)
