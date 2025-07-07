@@ -1,17 +1,20 @@
 import os
 import torch
+import argparse
 import warnings
 
 warnings.filterwarnings(action="ignore", category=UserWarning)
-ROI_SIZE = (64, 64, 32)
-SW_BATCH_SIZE = 4
+
+class Config:
+    ROI_SIZE = (64, 64, 64)
+    SW_BATCH_SIZE = 4
 
 class Trainer:
     def __init__(self, model, loss_fn, optimizer, train_loader,
                  valid_loader=None, save_dir: str=None, scheduler=None, device=None,
                  train_process=None, valid_process=None, batch_process=None,
                  train_compare=None, valid_compare=None,
-                 valid_interval=5) -> None:
+                 valid_interval=5, args: argparse.ArgumentParser=None) -> None:
         """
         初始化训练器
         :param model: 所使用的神经网络
@@ -30,11 +33,16 @@ class Trainer:
         :param train_compare: train_criteria比较函数：train_compare(criteria_1: dict|float, criteria_2: dict|float) -> int
         :param valid_compare: valid_criteria比较函数：valid_compare(criteria_1: dict|float, criteria_2: dict|float) -> int
         :param valid_interval: 验证间隔
+        :param args: 命令行参数解析器
         """
         if device is None:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         else:
             self.device = device
+
+        if args is not None:
+            Config.ROI_SIZE = args.roi
+            Config.SW_BATCH_SIZE = args.sw_batch
 
         self.model = model.to(self.device)
         self.loss_fn = loss_fn.to(self.device)
@@ -220,7 +228,7 @@ class TrainerMethods:
 
         for batch in data_loader:
             images, labels = batch_process(batch, device)
-            valid_outputs = sliding_window_inference(images, ROI_SIZE, SW_BATCH_SIZE, model)
+            valid_outputs = sliding_window_inference(images, Config.ROI_SIZE, Config.SW_BATCH_SIZE, model)
             valid_outputs = [post_pred(i) for i in decollate_batch(valid_outputs)]
             valid_labels = [post_label(i) for i in decollate_batch(labels)]
             dice_metric(y_pred=valid_outputs, y=valid_labels)

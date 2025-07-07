@@ -3,15 +3,17 @@ import re
 import sys
 import glob
 import random
+import argparse
 import numpy as np
 
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
-SPATIAL_SIZE = (64, 64, 32)
+SPATIAL_SIZE = (64, 64, 64)
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
+                 args: argparse.ArgumentParser = None,
                  data_transforms: dict=None, remain_nums: int = None,
                  val_scale: float=0.2, shuffle: bool=False,
                  num_workers=4, num_workers_loader=0) -> None:
@@ -21,6 +23,7 @@ class DataReader:
         :param train_dir: 训练集文件夹名
         :param label_dir: 标签文件夹名
         :param test_dir: 测试集文件夹名
+        :param args: 命令行参数解析器
         :param data_transforms: 以字典形式存放的transforms，{'train': monai.transforms, 'valid': monai.transforms, 'test': monai.transforms}
         :param remain_nums: 保留文件数量（训练集+验证集）
         :param val_scale: 验证集占数据集的百分比，范围(0, 1)
@@ -28,13 +31,6 @@ class DataReader:
         :param num_workers: CacheDataset的加载线程数
         :param num_workers_loader: DataLoader的加载线程数
         """
-        self.val_scale = val_scale
-        if self.val_scale <= 0 or self.val_scale >= 1:
-            raise ValueError('val_scale must be in (0, 1)')
-
-        self.num_workers = num_workers
-        self.num_workers_loader = num_workers_loader
-
         if sys.platform.startswith('win'):
             pattern = lambda x: int(re.findall(r'\d+', x)[0])
         else:
@@ -44,44 +40,68 @@ class DataReader:
         self.train_labels = sorted(glob.glob(os.path.join(root_dir, label_dir, '*.nii.gz')), key=pattern)
         self.test_images = sorted(glob.glob(os.path.join(root_dir, test_dir, '*.nii.gz')), key=pattern)
 
+        self.num_workers = num_workers
+
+        if args is not None:
+            self.remain_nums = args.remains
+            self.val_scale = args.val_scale
+            self.shuffle = args.shuffle
+            self.num_workers_loader = args.num_workers
+            spatial_size = args.size
+
+        else:
+            self.remain_nums = remain_nums
+            self.val_scale = val_scale
+            self.shuffle = shuffle
+            self.num_workers_loader = num_workers_loader
+            spatial_size = SPATIAL_SIZE
+
+        if self.val_scale <= 0 or self.val_scale >= 1:
+            raise ValueError('val_scale must be in (0, 1)')
+
         self.train_valid_files = [{'image': image_name, 'label': label_name}
                                   for image_name, label_name in zip(self.train_images, self.train_labels)]
 
         self.data_files = {'test': [{'image': image_name} for image_name in self.test_images]}
 
-        self.shuffle = shuffle
         if self.shuffle:
             random.shuffle(self.train_valid_files)
             random.shuffle(self.data_files['test'])
 
-        if isinstance(remain_nums, int):
-            self.set_data_nums(remain_nums)
+        if isinstance(self.remain_nums, int):
+            self.set_data_nums(self.remain_nums)
 
         self.data_files['train'], self.data_files['valid'] = self.get_train_and_valid_file()
         self.data_cache = {}
 
         self.data_transforms = data_transforms if data_transforms is not None else {
             'train': transforms.Compose([
+                # 数据加载与基础处理
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
+                transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
+                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
+                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
+
+                # 特异性强度归一化
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=-200,
-                    a_max=200,
+                    a_min=-100,
+                    a_max=400,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
                 ),
-                transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                # transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE),
 
+                # 填充
+                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size),
+
+                # 数据增强
                 transforms.RandCropByPosNegLabeld(
                     keys=['image', 'label'],
                     image_key='image',
                     label_key='label',
-                    spatial_size=SPATIAL_SIZE,
+                    spatial_size=spatial_size,
                     pos=1,
                     neg=1,
                     num_samples=4
@@ -90,42 +110,73 @@ class DataReader:
                     keys=['image', 'label'],
                     mode=('bilinear', 'nearest'),
                     prob=1.0,
-                    spatial_size=SPATIAL_SIZE,
+                    spatial_size=spatial_size,
                     rotate_range=(0, 0, np.pi / 15),
                     scale_range=(0.1, 0.1, 0.1)
+                ),
+                transforms.RandRotated(
+                    keys=['image', 'label'],
+                    range_x=0.3,
+                    prob=0.5,
+                    keep_size=True,
+                    mode=['bilinear', 'nearest']
+                ),
+                transforms.RandZoomd(
+                    keys=['image', 'label'],
+                    min_zoom=0.8,
+                    max_zoom=1.2,
+                    prob=0.5,
+                    mode=['area', 'nearest']
+                ),
+                transforms.RandFlipd(
+                    keys=['image', 'label'],
+                    spatial_axis=[0, 1, 2],
+                    prob=0.5
                 )
             ]),
+
             'valid': transforms.Compose([
+                # 数据加载与基础处理
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
+                transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
+                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
+                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
+
+                # 特异性强度归一化
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=-200,
-                    a_max=200,
+                    a_min=-100,
+                    a_max=400,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
                 ),
+
+                # 填充
+                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size)
+            ]),
+
+            'test': transforms.Compose([
+                # 数据加载与基础处理
+                transforms.LoadImaged(keys=['image', 'label']),
+                transforms.EnsureChannelFirstd(keys=['image', 'label']),
                 transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-                # transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE)
-            ]),
-            'test': transforms.Compose([
-                transforms.LoadImaged(keys='image'),
-                transforms.EnsureChannelFirstd(keys='image'),
-                transforms.Orientationd(keys=['image'], axcodes='RAS'),
-                transforms.Spacingd(keys=['image'], pixdim=(1.5, 1.5, 2.0), mode='bilinear'),
+
+                # 特异性强度归一化
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=-200,
-                    a_max=200,
+                    a_min=-100,
+                    a_max=400,
                     b_min=0.0,
                     b_max=1.0,
-                    clip=True,
+                    clip=True
                 ),
-                transforms.CropForegroundd(keys=['image'], source_key='image', allow_smaller=True),
-                # transforms.Resized(keys=['image', 'label'], spatial_size=SPATIAL_SIZE)
+
+                # 填充
+                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size)
             ])
         }
 
@@ -153,6 +204,12 @@ class DataReader:
         self.data_cache[target] = CacheDataset(data_files, data_transforms, num_workers=self.num_workers)
 
     def get_dataloader(self, target: str='train', batch_size: int=None) -> DataLoader:
+        """
+        生成DataLoader
+        :param target: 需要生成的目标：['train', 'valid', 'test']
+        :param batch_size: 返回DataLoader的batch_size
+        :return: DataLoader
+        """
         if target not in self.data_cache:
             self.get_cache_dataset(target=target)
         if batch_size is None:
