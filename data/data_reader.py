@@ -4,12 +4,13 @@ import sys
 import glob
 import random
 import argparse
-import numpy as np
 
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
 SPATIAL_SIZE = (64, 64, 64)
+A_MIN = -100
+A_MAX = 400
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
@@ -76,107 +77,115 @@ class DataReader:
 
         self.data_transforms = data_transforms if data_transforms is not None else {
             'train': transforms.Compose([
-                # 数据加载与基础处理
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-
-                # 特异性强度归一化
+                transforms.Spacingd(
+                    keys=['image', 'label'],
+                    pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=-100,
-                    a_max=400,
+                    a_min=A_MIN,
+                    a_max=A_MAX,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
                 ),
-
-                # 填充
+                transforms.CropForegroundd(
+                    keys=['image', 'label'],
+                    source_key='image',
+                    allow_smaller=True
+                ),
                 transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size),
 
-                # 数据增强
                 transforms.RandCropByPosNegLabeld(
                     keys=['image', 'label'],
-                    image_key='image',
                     label_key='label',
                     spatial_size=spatial_size,
                     pos=1,
-                    neg=1,
-                    num_samples=4
-                ),
-                transforms.RandAffined(
-                    keys=['image', 'label'],
-                    mode=('bilinear', 'nearest'),
-                    prob=1.0,
-                    spatial_size=spatial_size,
-                    rotate_range=(0, 0, np.pi / 15),
-                    scale_range=(0.1, 0.1, 0.1)
+                    neg=0,
+                    num_samples=4,
+                    image_key='image',
+                    image_threshold=-100
                 ),
                 transforms.RandRotated(
                     keys=['image', 'label'],
-                    range_x=0.3,
-                    prob=0.5,
-                    keep_size=True,
-                    mode=['bilinear', 'nearest']
+                    range_x=0.26,  # 15度 in radians
+                    range_y=0.26,
+                    range_z=0.26,
+                    prob=0.8,
+                    mode=('bilinear', 'nearest'),
+                    keep_size=True
                 ),
                 transforms.RandZoomd(
                     keys=['image', 'label'],
-                    min_zoom=0.8,
-                    max_zoom=1.2,
-                    prob=0.5,
-                    mode=['area', 'nearest']
+                    min_zoom=0.9,
+                    max_zoom=1.1,
+                    prob=0.8,
+                    mode=('bilinear', 'nearest')
                 ),
                 transforms.RandFlipd(
                     keys=['image', 'label'],
                     spatial_axis=[0, 1, 2],
                     prob=0.5
+                ),
+                transforms.RandShiftIntensityd(
+                    keys=['image'],
+                    offsets=0.1,
+                    prob=0.5
                 )
             ]),
 
             'valid': transforms.Compose([
-                # 数据加载与基础处理
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-
-                # 特异性强度归一化
+                transforms.Spacingd(
+                    keys=['image', 'label'],
+                    pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=-100,
-                    a_max=400,
+                    a_min=A_MIN,
+                    a_max=A_MAX,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
                 ),
-
-                # 填充
-                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size)
+                transforms.CropForegroundd(
+                    keys=['image', 'label'],
+                    source_key='image',
+                    allow_smaller=True
+                ),
+                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size),
             ]),
 
             'test': transforms.Compose([
-                # 数据加载与基础处理
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.CropForegroundd(keys=['image', 'label'], source_key='image', allow_smaller=True),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(keys=['image', 'label'], pixdim=(1.5, 1.5, 2.0), mode=('bilinear', 'nearest')),
-
-                # 特异性强度归一化
+                transforms.Spacingd(
+                    keys=['image', 'label'],
+                    pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=-100,
-                    a_max=400,
+                    a_min=A_MIN,
+                    a_max=A_MAX,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
                 ),
-
-                # 填充
-                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size)
+                transforms.CropForegroundd(
+                    keys=['image', 'label'],
+                    source_key='image',
+                    allow_smaller=True
+                ),
+                transforms.SpatialPadd(keys=['image', 'label'], spatial_size=spatial_size),
             ])
         }
 
