@@ -80,12 +80,6 @@ class DataReader:
             'train': transforms.Compose([
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.Spacingd(
-                    keys=['image', 'label'],
-                    pixdim=(1.5, 1.5, 2.0),
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
                     a_min=A_MIN,
@@ -104,6 +98,12 @@ class DataReader:
                     spatial_size=spatial_size,
                     mode='constant'
                 ),
+                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
+                transforms.Spacingd(
+                    keys=['image', 'label'],
+                    pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
 
                 transforms.RandCropByPosNegLabeld(
                     keys=['image', 'label'],
@@ -114,13 +114,6 @@ class DataReader:
                     neg=1,
                     num_samples=4,
                     image_threshold=0
-                ),
-                transforms.RandZoomd(
-                    keys=['image', 'label'],
-                    min_zoom=0.7,
-                    max_zoom=1.2,
-                    prob=0.5,
-                    mode=('bilinear', 'nearest')
                 ),
                 transforms.RandAffined(
                     keys=['image', 'label'],
@@ -140,12 +133,6 @@ class DataReader:
             'valid': transforms.Compose([
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.Spacingd(
-                    keys=['image', 'label'],
-                    pixdim=(1.5, 1.5, 2.0),
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
                     a_min=A_MIN,
@@ -163,18 +150,18 @@ class DataReader:
                     keys=['image', 'label'],
                     spatial_size=spatial_size,
                     mode='constant'
+                ),
+                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
+                transforms.Spacingd(
+                    keys=['image', 'label'],
+                    pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
                 )
             ]),
 
             'test': transforms.Compose([
                 transforms.LoadImaged(keys=['image', 'label']),
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.Spacingd(
-                    keys=['image', 'label'],
-                    pixdim=(1.5, 1.5, 2.0),
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
                     a_min=A_MIN,
@@ -192,6 +179,12 @@ class DataReader:
                     keys=['image', 'label'],
                     spatial_size=spatial_size,
                     mode='constant'
+                ),
+                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
+                transforms.Spacingd(
+                    keys=['image', 'label'],
+                    pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
                 )
             ])
         }

@@ -4,6 +4,7 @@ import argparse
 import warnings
 
 warnings.filterwarnings(action="ignore", category=UserWarning)
+SAVE_EPOCH = 5
 
 class Config:
     ROI_SIZE = (64, 64, 64)
@@ -117,6 +118,10 @@ class Trainer:
             if train_criteria is not None:
                 _display(train_criteria, prefix='train')
                 _update(self.train_criteria, train_criteria)
+
+                if epoch % SAVE_EPOCH == 0:
+                    torch.save(self.train_criteria, os.path.join(self.save_dir, 'train_criteria.pth'))
+
                 if self.train_compare(self.best_train_criteria, train_criteria):
                     self.best_train_criteria = train_criteria
                     self.best_train_epoch = epoch
@@ -132,6 +137,10 @@ class Trainer:
                 if valid_criteria is not None:
                     _display(valid_criteria, prefix='valid')
                     _update(self.valid_criteria, valid_criteria)
+
+                    if epoch % SAVE_EPOCH == 0:
+                        torch.save(self.valid_criteria, os.path.join(self.save_dir, 'valid_criteria.pth'))
+
                     if self.valid_compare(self.best_valid_criteria, valid_criteria):
                         self.best_valid_criteria = valid_criteria
                         self.best_valid_epoch = epoch

@@ -95,7 +95,7 @@ if __name__ == '__main__':
 
     loss_fn = DiceLoss(to_onehot_y=True, softmax=True, squared_pred=args.squared_pred)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.75,
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5,
                                                            patience=2, threshold=1e-06, threshold_mode='rel',
                                                            cooldown=0, min_lr=1e-08, eps=1e-08)
     trainer = Trainer(model=model, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
