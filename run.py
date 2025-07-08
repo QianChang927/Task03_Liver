@@ -9,11 +9,10 @@ from model import UNet3D
 from train import Trainer
 from repeat import enable_repeat
 from monai.losses import DiceLoss
+from monai.networks.nets import UNet
+from monai.networks.layers import Norm
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-model_dict = {
-    'UNet3D': UNet3D
-}
 
 def parse_tuple(value: str) -> tuple[int]:
     try:
@@ -41,7 +40,7 @@ def add_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('-S', '--size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理Transforms后输出的向量大小')
     parser.add_argument('-R', '--roi', type=parse_tuple, default="(64, 64, 64)", help='滑动窗口大小')
     parser.add_argument('-W', '--sw_batch', type=int, default=4, help='滑动窗口batch_size')
-    parser.add_argument('-m', '--model', type=str, choices=['UNet3D'], default='UNet3D', help='训练所选模型')
+    parser.add_argument('-m', '--model', type=str, choices=['UNet3D', 'UNetMONAI'], default='UNet3D', help='训练所选模型')
     parser.add_argument('-L', '--layer', type=str, choices=['BatchNorm', 'InstanceNorm', 'None'], default='BatchNorm', help='Relu激活层前的添加层')
     return parser
 
@@ -73,7 +72,27 @@ if __name__ == '__main__':
     train_loader = data_reader.get_dataloader(target='train', batch_size=args.batch)
     valid_loader = data_reader.get_dataloader(target='valid', batch_size=1)
 
-    model = model_dict[args.model](in_channels=1, out_channels=2, norm_layer=args.layer)
+    if args.model == 'UNet3D':
+        model = UNet3D(in_channels=1, out_channels=2, norm_layer=args.layer)
+    elif args.model == 'UNetMONAI':
+        norm_layer = {
+            'BatchNorm': Norm.BATCH,
+            'InstanceNorm': Norm.INSTANCE,
+            'None': None
+        }
+
+        model = UNet(
+            spatial_dims=3,
+            in_channels=1,
+            out_channels=2,
+            channels=(16, 32, 64, 128, 256),
+            strides=(2, 2, 2, 2),
+            num_res_units=2,
+            norm=norm_layer[args.layer]
+        )
+    else:
+        raise ValueError('args.model should be in ["UNet3D", "UNetMONAI"]')
+
     loss_fn = DiceLoss(to_onehot_y=True, softmax=True, squared_pred=args.squared_pred)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.75,
