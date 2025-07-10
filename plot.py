@@ -70,6 +70,15 @@ class Drawer:
             for key, value in diff_dict.items():
                 diff_dict[key] = Drawer.dict_to_str(diff_dict[key])
 
+        revert_dict = {}
+        for key, value in diff_dict.copy().items():
+            if value not in revert_dict:
+                revert_dict[value] = []
+
+            revert_dict[value].append(key)
+            if len(revert_dict[value]) > 1:
+                diff_dict[key] = diff_dict[key] + f'_{key}'
+
         return diff_dict
 
     def get_drawing_layout(self, log_dir: str) -> tuple:
@@ -156,7 +165,8 @@ class Drawer:
         return config
 
 
-if __name__ == '__main__':
+class ModifyMethods:
+    @staticmethod
     def omit_epoch_less(root_dir: str, log_dirs: list, args: list|None) -> list:
         threshold = args[0] if args else 500
         new_log_dirs = log_dirs.copy()
@@ -168,6 +178,7 @@ if __name__ == '__main__':
 
         return new_log_dirs
 
+    @staticmethod
     def omit_layer(root_dir: str, log_dirs: list, args: list|None) -> list:
         layer = args[0] if args else 'BatchNorm'
         new_log_dirs = log_dirs.copy()
@@ -179,5 +190,23 @@ if __name__ == '__main__':
 
         return new_log_dirs
 
-    drawer = Drawer(root_dir='./checkpoint', modify_func=omit_epoch_less, modify_args=[500])
+    @staticmethod
+    def filter_lr(root_dir: str, log_dirs: list, args: list | None) -> list:
+        lr = args if args else [1e-02]
+        new_log_dirs = log_dirs.copy()
+
+        for log_dir in log_dirs:
+            config = Drawer.get_config_json(os.path.join(root_dir, log_dir))
+            if config['lr'] not in lr:
+                new_log_dirs.remove(log_dir)
+
+        return new_log_dirs
+
+
+if __name__ == '__main__':
+    drawer = Drawer(
+        root_dir='./checkpoint',
+        modify_func=ModifyMethods.omit_epoch_less,
+        modify_args=[100]
+    )
     drawer.plot()

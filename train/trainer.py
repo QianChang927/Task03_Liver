@@ -26,10 +26,10 @@ class Trainer:
         :param save_dir: 模型保存文件夹
         :param scheduler: 控制学习率变化的调度器
         :param device: 训练所用设备
-        :param train_process: 训练过程函数：train_process(model, data_loader, batch_process, loss_fn, optimizer,
-              device, best_criteria, criteria_compare, save_dir) -> dict|None
-        :param valid_process: 验证过程函数：valid_process(model, data_loader, batch_process, scheduler,
-              device, best_criteria, criteria_compare, save_dir) -> dict|None
+        :param train_process: 训练过程函数：train_process(model, epoch, data_loader, batch_process, loss_fn,
+              optimizer, scheduler, device, best_criteria, criteria_compare, save_dir) -> dict|None
+        :param valid_process: 验证过程函数：valid_process(model, epoch, data_loader, batch_process, loss_fn,
+              optimizer, scheduler, device, best_criteria, criteria_compare, save_dir) -> dict|None
         :param batch_process: batch处理函数：batch_process(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]
         :param train_compare: train_criteria比较函数：train_compare(criteria_1: dict|float, criteria_2: dict|float) -> int
         :param valid_compare: valid_criteria比较函数：valid_compare(criteria_1: dict|float, criteria_2: dict|float) -> int
@@ -109,12 +109,12 @@ class Trainer:
 
         for epoch in range(epochs):
             print(f"{f'Epoch {epoch + 1}/{epochs}':-^60}")
-            print(f"learning rate: {self.optimizer.state_dict()['param_groups'][0]['lr']:.8f}")
+            print(f"lr: {self.optimizer.state_dict()['param_groups'][0]['lr']:.8f}")
 
             self.model.train()
-            train_criteria = self.train_process(self.model, self.train_loader, self.batch_process,
-                                                self.loss_fn, self.optimizer, self.device,
-                                                self.best_train_criteria, self.train_compare, self.save_dir)
+            train_criteria = self.train_process(self.model, epoch, self.train_loader,
+                                                self.batch_process, self.loss_fn, self.optimizer, self.scheduler,
+                                                self.device, self.best_train_criteria, self.train_compare, self.save_dir)
             if train_criteria is not None:
                 _display(train_criteria, prefix='train')
                 _update(self.train_criteria, train_criteria)
@@ -131,9 +131,9 @@ class Trainer:
 
             self.model.eval()
             with torch.no_grad():
-                valid_criteria = self.valid_process(self.model, self.valid_loader, self.batch_process,
-                                                    self.scheduler, self.device,
-                                                    self.best_valid_criteria, self.valid_compare, self.save_dir)
+                valid_criteria = self.valid_process(self.model, epoch, self.valid_loader,
+                                                    self.batch_process, self.loss_fn, self.optimizer, self.scheduler,
+                                                    self.device, self.best_valid_criteria, self.valid_compare, self.save_dir)
                 if valid_criteria is not None:
                     _display(valid_criteria, prefix='valid')
                     _update(self.valid_criteria, valid_criteria)
@@ -151,15 +151,18 @@ class TrainerMethods:
         pass
 
     @staticmethod
-    def train(model, data_loader, batch_process, loss_fn, optimizer,
+    def train(model, epoch, data_loader,
+              batch_process, loss_fn, optimizer, scheduler,
               device, best_criteria, criteria_compare, save_dir) -> dict:
         """
         训练函数的默认实现
         :param model: 所使用的神经网络，若要在GPU上训练，应在调用此函数前转移
+        :param epoch: 当前训练轮次
         :param data_loader: 所使用的训练数据集
         :param batch_process: batch解析函数，batch_process(batch, device)
         :param loss_fn: 损失函数，若要在GPU上训练，应在调用此函数前转移
         :param optimizer: 优化器
+        :param scheduler: 控制动态学习率的调度器
         :param device: 训练所用设备
         :param best_criteria: 此前最佳评判表现，若要在训练过程中保存，此项为必要项
         :param criteria_compare: 评判指标比较函数，若要在训练过程中保存，此项为必要项
@@ -178,7 +181,7 @@ class TrainerMethods:
             :return: 返回dice系数
             """
             from monai.losses import DiceLoss
-            dice_loss = DiceLoss(to_onehot_y=True, softmax=True)
+            dice_loss = DiceLoss(to_onehot_y=loss_fn.to_onehot_y, softmax=loss_fn.softmax)
             dice = 1 - dice_loss(y_pred, y).item()
             return dice
 
@@ -207,18 +210,22 @@ class TrainerMethods:
         return {'loss': epoch_loss, 'dice': epoch_dice}
 
     @staticmethod
-    def valid(model, data_loader, batch_process, scheduler,
+    def valid(model, epoch, data_loader,
+              batch_process, loss_fn, optimizer, scheduler,
               device, best_criteria, criteria_compare, save_dir) -> dict:
         """
-        验证函数的默认实现
+        训练函数的默认实现
         :param model: 所使用的神经网络，若要在GPU上训练，应在调用此函数前转移
-        :param data_loader: 所使用的验证数据集
+        :param epoch: 当前训练轮次
+        :param data_loader: 所使用的训练数据集
         :param batch_process: batch解析函数，batch_process(batch, device)
+        :param loss_fn: 损失函数，若要在GPU上训练，应在调用此函数前转移
+        :param optimizer: 优化器
         :param scheduler: 控制动态学习率的调度器
         :param device: 训练所用设备
         :param best_criteria: 此前最佳评判表现，若要在训练过程中保存，此项为必要项
         :param criteria_compare: 评判指标比较函数，若要在训练过程中保存，此项为必要项
-        :param save_dir: 模型保存文件夹，若要在训练过程中保存，该项为必要项
+        :param save_dir: 模型保存位置，若要在训练过程中保存，该项为必要项
         :return: {'dice': dice}
         """
         from monai.inferers import sliding_window_inference

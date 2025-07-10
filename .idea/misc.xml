@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="MSD" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="msd_remote" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="msd" project-jdk-type="Python SDK" />
 </project>

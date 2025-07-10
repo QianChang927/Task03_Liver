@@ -1,3 +1,3 @@
-from .data_reader import DataReader, SPATIAL_SIZE
+from .data_reader import DataReader
 
-__all__ = ['DataReader', 'SPATIAL_SIZE']
+__all__ = ['DataReader']

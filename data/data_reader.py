@@ -9,9 +9,10 @@ import numpy as np
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
-SPATIAL_SIZE = (64, 64, 64)
-A_MIN = -100
-A_MAX = 400
+class Config:
+    SPATIAL_SIZE = (64, 64, 64)
+    A_MIN = -100
+    A_MAX = 400
 
 class DataReader:
     def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
@@ -56,7 +57,7 @@ class DataReader:
             self.val_scale = val_scale
             self.shuffle = shuffle
             self.num_workers_loader = num_workers_loader
-            spatial_size = SPATIAL_SIZE
+            spatial_size = Config.SPATIAL_SIZE
 
         if self.val_scale <= 0 or self.val_scale >= 1:
             raise ValueError('val_scale must be in (0, 1)')
@@ -82,8 +83,8 @@ class DataReader:
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=A_MIN,
-                    a_max=A_MAX,
+                    a_min=Config.A_MIN,
+                    a_max=Config.A_MAX,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -93,15 +94,15 @@ class DataReader:
                     source_key='image',
                     allow_smaller=True
                 ),
-                transforms.SpatialPadd(
-                    keys=['image', 'label'],
-                    spatial_size=spatial_size,
-                    mode='constant'
-                ),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(
                     keys=['image', 'label'],
                     pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
+                transforms.Resized(
+                    keys=['image', 'label'],
+                    spatial_size=spatial_size,
                     mode=('bilinear', 'nearest')
                 ),
 
@@ -112,8 +113,12 @@ class DataReader:
                     spatial_size=spatial_size,
                     pos=1,
                     neg=1,
-                    num_samples=4,
-                    image_threshold=0
+                    num_samples=4
+                ),
+                transforms.RandRotate90d(
+                    keys=['image', 'label'],
+                    prob=0.5,
+                    spatial_axes=[0, 2]
                 ),
                 transforms.RandAffined(
                     keys=['image', 'label'],
@@ -135,8 +140,8 @@ class DataReader:
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=A_MIN,
-                    a_max=A_MAX,
+                    a_min=Config.A_MIN,
+                    a_max=Config.A_MAX,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -146,15 +151,15 @@ class DataReader:
                     source_key='image',
                     allow_smaller=True
                 ),
-                transforms.SpatialPadd(
-                    keys=['image', 'label'],
-                    spatial_size=spatial_size,
-                    mode='constant'
-                ),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(
                     keys=['image', 'label'],
                     pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
+                transforms.Resized(
+                    keys=['image', 'label'],
+                    spatial_size=spatial_size,
                     mode=('bilinear', 'nearest')
                 )
             ]),
@@ -164,8 +169,8 @@ class DataReader:
                 transforms.EnsureChannelFirstd(keys=['image', 'label']),
                 transforms.ScaleIntensityRanged(
                     keys=['image'],
-                    a_min=A_MIN,
-                    a_max=A_MAX,
+                    a_min=Config.A_MIN,
+                    a_max=Config.A_MAX,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -175,15 +180,15 @@ class DataReader:
                     source_key='image',
                     allow_smaller=True
                 ),
-                transforms.SpatialPadd(
-                    keys=['image', 'label'],
-                    spatial_size=spatial_size,
-                    mode='constant'
-                ),
                 transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
                 transforms.Spacingd(
                     keys=['image', 'label'],
                     pixdim=(1.5, 1.5, 2.0),
+                    mode=('bilinear', 'nearest')
+                ),
+                transforms.Resized(
+                    keys=['image', 'label'],
+                    spatial_size=spatial_size,
                     mode=('bilinear', 'nearest')
                 )
             ])

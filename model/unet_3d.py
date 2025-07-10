@@ -7,31 +7,58 @@ class UNet3D(nn.Module):
         super(UNet3D, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.norm_layer = norm_layer
 
         if n_channels is None:
             n_channels = [64, 128, 256, 512]
+        if len(n_channels) <= 1:
+            raise ValueError('n_channels should have at least 2 elements')
+        self.n_channels = n_channels
 
-        self.in_conv = DoubleConv(in_channels, n_channels[0], norm_layer=norm_layer)
-        self.encoder_1 = DownSample(n_channels[0], n_channels[1], norm_layer=norm_layer)
-        self.encoder_2 = DownSample(n_channels[1], n_channels[2], norm_layer=norm_layer)
-        self.encoder_3 = DownSample(n_channels[2], n_channels[3], norm_layer=norm_layer)
-
-        self.decoder_1 = UpSample(n_channels[3], n_channels[2], n_channels[2], norm_layer=norm_layer)
-        self.decoder_2 = UpSample(n_channels[2], n_channels[1], n_channels[1], norm_layer=norm_layer)
-        self.decoder_3 = UpSample(n_channels[1], n_channels[0], n_channels[0], norm_layer=norm_layer)
-        self.out_conv = OutConv(n_channels[0], out_channels)
+        self.in_conv = DoubleConv(self.in_channels, self.n_channels[0], norm_layer=self.norm_layer)
+        self.encoder = self.build_layer(mode='encoder')
+        self.decoder = self.build_layer(mode='decoder')
+        self.out_conv = OutConv(self.n_channels[0], self.out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x1 = self.in_conv(x)
-        x2 = self.encoder_1(x1)
-        x3 = self.encoder_2(x2)
-        x4 = self.encoder_3(x3)
+        # 输入层
+        x = self.in_conv(x)
 
-        x = self.decoder_1(x4, x3)
-        x = self.decoder_2(x, x2)
-        x = self.decoder_3(x, x1)
+        # 编码过程
+        features = [x]
+        for layer in self.encoder:
+            features.append(layer(features[-1]))
+
+        # 解码过程
+        x = features[-1]
+        for layer, feature in zip(self.decoder, reversed(features[:-1])):
+            x = layer(x, feature)
+
+        # 输出层
         x = self.out_conv(x)
         return x
+
+    def build_layer(self, mode: str) -> nn.ModuleList:
+        layers = nn.ModuleList()
+        n_channels = self.n_channels if mode == 'encoder' else tuple(reversed(self.n_channels))
+        for in_channels, out_channels in zip(n_channels[:-1], n_channels[1:]):
+            if mode == 'encoder':
+                layer = DownSample(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    norm_layer=self.norm_layer
+                )
+            elif mode == 'decoder':
+                layer = UpSample(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    encoder_channels=out_channels,
+                    norm_layer=self.norm_layer
+                )
+            else:
+                raise ValueError('mode should be either `encoder` or `decoder`')
+            layers.append(layer)
+        return layers
 
 
 class DoubleConv(nn.Module):
@@ -104,8 +131,14 @@ class OutConv(nn.Module):
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    tensor = torch.randn([8, 1, 96, 96, 96]).to(device)
-    model = UNet3D(in_channels=1, out_channels=2, norm_layer='None').to(device)
+    model = UNet3D(
+        in_channels=1,
+        out_channels=2,
+        n_channels=[64, 128, 256, 512, 1024],
+        norm_layer='None'
+    ).to(device)
     print(model)
-    # output = model(tensor)
-    # print(output.shape)
+
+    tensor = torch.randn([8, 1, 96, 96, 96]).to(device)
+    output = model(tensor)
+    print(output.shape)
