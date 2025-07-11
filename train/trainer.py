@@ -120,7 +120,7 @@ class Trainer:
                 _update(self.train_criteria, train_criteria)
 
                 if epoch % SAVE_EPOCH == 0:
-                    torch.save(self.train_criteria, os.path.join(self.save_dir, 'train_criteria.pth'))
+                    torch.save(self.train_criteria, os.path.join(self.save_dir, 'train_criteria.pt'))
 
                 if self.train_compare(self.best_train_criteria, train_criteria):
                     self.best_train_criteria = train_criteria
@@ -139,7 +139,7 @@ class Trainer:
                     _update(self.valid_criteria, valid_criteria)
 
                     if epoch % SAVE_EPOCH == 0:
-                        torch.save(self.valid_criteria, os.path.join(self.save_dir, 'valid_criteria.pth'))
+                        torch.save(self.valid_criteria, os.path.join(self.save_dir, 'valid_criteria.pt'))
 
                     if self.valid_compare(self.best_valid_criteria, valid_criteria):
                         self.best_valid_criteria = valid_criteria

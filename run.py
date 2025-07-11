@@ -147,5 +147,5 @@ if __name__ == '__main__':
     add_config_json(args, save_dir)
 
     trainer.run(args.epochs)
-    torch.save(trainer.train_criteria, os.path.join(save_dir, 'train_criteria.pth'))
-    torch.save(trainer.valid_criteria, os.path.join(save_dir, 'valid_criteria.pth'))
+    torch.save(trainer.train_criteria, os.path.join(save_dir, 'train_criteria.pt'))
+    torch.save(trainer.valid_criteria, os.path.join(save_dir, 'valid_criteria.pt'))
