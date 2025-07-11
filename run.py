@@ -16,10 +16,6 @@ from monai.networks.layers import Norm
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-# 配置相关变量初始化
-data_reader = None
-model = None
-
 def parse_tuple(value: str) -> tuple[int]:
     try:
         value = value.strip()
@@ -60,7 +56,6 @@ def add_config_json(args: argparse.Namespace, save_dir: str) -> None:
 
     config_dict = vars(args)
     config_dict['system'] = sys.platform
-    config_dict['transform'] = data_reader.data_transforms['train']
     print(json.dumps(config_dict, indent=4))
 
     with open(config_path, 'w') as f:
@@ -76,7 +71,6 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     save_dir = os.path.abspath(os.path.join(args.output, datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
-    add_config_json(args, save_dir)
 
     data_reader = DataReader(
         root_dir=args.input,
@@ -149,6 +143,8 @@ if __name__ == '__main__':
         valid_interval=1,
         args=args
     )
+
+    add_config_json(args, save_dir)
 
     trainer.run(args.epochs)
     torch.save(trainer.train_criteria, os.path.join(save_dir, 'train_criteria.pth'))

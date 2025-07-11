@@ -31,55 +31,67 @@ class Drawer:
         if not len(self.log_dirs):
             return None
 
+        '''
+        思路：
+        1.  log_dir1 <=> { 'attr1': 'value1', 'attr2': 'value2' } -> { 'attr1': { 'value1': ['log_dir1', ...] }, 'attr2': { 'value2': ['log_dir1', ...] } }
+        2.  统计attr*中键的个数
+            1)  若不唯一，则differ_dict[log_dir*]['attr*'] = 'value*'
+            2)  若唯一，则differ_dict忽略attr*
+        3.  统计attr*中['log_dir1', ...]的总长度，比较其与len(log_dirs)的大小
+            1)  若不一致，则differ_dict[log_dir*]['attr*'] = 'value*'
+            2)  若一致，则differ_dict忽略attr*
+        4.  differ_dict[log_dir*] = dict_to_str(differ_dict[log_dir*])
+        '''
+
         revert_dict = {}
-        # {
-        #     'model': { 'UNet3D': ['file_1', 'file_2'], 'UNetMONAI': ['file_3'] }
-        # }
+        differ_dict = {}
 
-        diff_dict = {}
-
+        # 生成反置键值对
         for log_dir in self.log_dirs:
-            config = Drawer.get_config_json(os.path.join(self.root_dir, log_dir))
-            for key, value in config.items():
-                if key not in revert_dict:
-                    revert_dict[key] = {}
-
+            config_dict = Drawer.get_config_json(os.path.join(self.root_dir, log_dir))
+            for key, value in config_dict.items():
+                # 忽略输入和输出文件夹设置
+                if key in ['input', 'output']:
+                    continue
                 if not isinstance(value, str) and isinstance(value, Iterable):
                     value = '_'.join(map(str, value))
-
+                if key not in revert_dict:
+                    revert_dict[key] = {}
                 if value not in revert_dict[key]:
                     revert_dict[key][value] = []
-
                 revert_dict[key][value].append(log_dir)
 
+        # 检测反置键值对的长度
         for key, value in revert_dict.items():
-            if len(value.keys()) <= 1:
-                continue
+            if len(value.keys()) == 1:
+                log_dir_length = 0
+                for v, log_dirs in value.items():
+                    log_dir_length += len(log_dirs)
 
-            for val, log_dirs in value.items():
+                if log_dir_length == len(self.log_dirs):
+                    continue
+
+            for v, log_dirs in value.items():
                 for log_dir in log_dirs:
-                    if log_dir not in diff_dict:
-                        diff_dict[log_dir] = {}
-                    diff_dict[log_dir][key] = val
+                    if log_dir not in differ_dict:
+                        differ_dict[log_dir] = {}
+                    differ_dict[log_dir][key] = v
 
-        if diff_dict == {}:
-            for log_dir in self.log_dirs:
-                diff_dict[log_dir] = log_dir
+        # 将differ_dict内部的键值对转为字符串
+        for key, value in differ_dict.items():
+            differ_dict[key] = Drawer.dict_to_str(differ_dict[key])
 
-        else:
-            for key, value in diff_dict.items():
-                diff_dict[key] = Drawer.dict_to_str(diff_dict[key])
-
+        # 防止不同log_dir的differ_dict[log_dir]完全一致
         revert_dict = {}
-        for key, value in diff_dict.copy().items():
+        for key, value in differ_dict.items():
             if value not in revert_dict:
                 revert_dict[value] = []
 
             revert_dict[value].append(key)
             if len(revert_dict[value]) > 1:
-                diff_dict[key] = diff_dict[key] + f'_{key}'
+                differ_dict[key] += f'_file_{key}'
 
-        return diff_dict
+        return differ_dict
 
     def get_drawing_layout(self, log_dir: str) -> tuple:
         key_words = {}
@@ -133,6 +145,9 @@ class Drawer:
 
     @staticmethod
     def dict_to_str(ori_dict: dict) -> str:
+        if not isinstance(ori_dict, dict):
+            return str(ori_dict)
+
         target_str = ''
         for key, value in ori_dict.items():
             if not isinstance(value, str) and isinstance(value, Iterable):
@@ -167,38 +182,63 @@ class Drawer:
 
 class ModifyMethods:
     @staticmethod
-    def omit_epoch_less(root_dir: str, log_dirs: list, args: list|None) -> list:
-        threshold = args[0] if args else 500
-        new_log_dirs = log_dirs.copy()
+    def filter_kwargs(root_dir: str, log_dirs: list, args: list) -> list:
+        """
+        筛选config中的kwargs，将符合条件的log_dir筛去
+        :param root_dir:
+        :param log_dirs:
+        :param args: 此参数为空时直接返回log_dirs，[(Optional)mode['omit', 'select'], {key1: value1, key2: value2, ...}, {key3: value3, ...}, ...]
+        :return: new_log_dirs
+        """
+
+        if not args or not isinstance(args, list):
+            return log_dirs
+
+        if isinstance(args[0], str):
+            mode = args.pop(0).strip().lower()
+        else:
+            mode = 'select'   # omit: 省略, select: 选取
+
+        if len(args) < 1:
+            return log_dirs
+
+        if mode == 'omit':
+            filter_init = False
+            filter_lambda = lambda x, y: x or y
+            new_log_dirs = log_dirs.copy()
+        elif mode == 'select':
+            filter_init = True
+            filter_lambda = lambda x, y: x and y
+            new_log_dirs = []
+        else:
+            raise ValueError('`mode` should be `omit` or `select`')
+
+        def _modify(target_list, element):
+            if mode == 'omit':
+                target_list.remove(element)
+            else:
+                target_list.append(element)
+
+        def _judge(_flag) -> bool:
+            if mode == 'omit':
+                return _flag
+            else:
+                return not _flag
 
         for log_dir in log_dirs:
             config = Drawer.get_config_json(os.path.join(root_dir, log_dir))
-            if config['epochs'] < threshold:
-                new_log_dirs.remove(log_dir)
 
-        return new_log_dirs
+            flag = filter_init
+            for kwargs in args:
+                if _judge(flag): break
+                for key, value in kwargs.items():
+                    if _judge(flag): break
+                    if isinstance(value, str) or not isinstance(value, Iterable):
+                        value = [value]
+                    flag = filter_lambda(flag, config.get(key, None) in value)
 
-    @staticmethod
-    def omit_layer(root_dir: str, log_dirs: list, args: list|None) -> list:
-        layer = args[0] if args else 'BatchNorm'
-        new_log_dirs = log_dirs.copy()
-
-        for log_dir in log_dirs:
-            config = Drawer.get_config_json(os.path.join(root_dir, log_dir))
-            if config['layer'] == layer:
-                new_log_dirs.remove(log_dir)
-
-        return new_log_dirs
-
-    @staticmethod
-    def filter_lr(root_dir: str, log_dirs: list, args: list | None) -> list:
-        lr = args if args else [1e-02]
-        new_log_dirs = log_dirs.copy()
-
-        for log_dir in log_dirs:
-            config = Drawer.get_config_json(os.path.join(root_dir, log_dir))
-            if config['lr'] not in lr:
-                new_log_dirs.remove(log_dir)
+            if flag:
+                _modify(new_log_dirs, log_dir)
 
         return new_log_dirs
 
@@ -206,7 +246,7 @@ class ModifyMethods:
 if __name__ == '__main__':
     drawer = Drawer(
         root_dir='./checkpoint',
-        modify_func=ModifyMethods.omit_epoch_less,
-        modify_args=[100]
+        modify_func=ModifyMethods.filter_kwargs,
+        modify_args=['select', {'system': 'win32'}]
     )
     drawer.plot()
