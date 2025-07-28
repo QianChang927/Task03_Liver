@@ -1,6 +1,4 @@
 import os
-import sys
-import json
 import torch
 import argparse
 
@@ -57,22 +55,6 @@ def add_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('-R', '--roi', type=parse_tuple, default="(192, 192, 64)", help='滑动窗口大小')
     parser.add_argument('-W', '--sw_batch', type=int, default=4, help='滑动窗口batch_size')
     return parser
-
-def add_config_json(args: argparse.Namespace, save_dir: str) -> None:
-    os.makedirs(save_dir, exist_ok=True)
-    config_path = os.path.join(save_dir, 'config.json')
-
-    config_dict = vars(args)
-    config_dict['system'] = sys.platform
-    # loss_fn相关配置记录
-    prefix = 'loss-'
-
-    # scheduler相关配置记录
-    prefix = 'scheduler-'
-
-    print(json.dumps(config_dict, indent=4))
-    with open(config_path, 'w') as f:
-        json.dump(config_dict, f, indent=4)
 
 if __name__ == '__main__':
     parser = add_arg_parser()
