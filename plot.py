@@ -54,7 +54,7 @@ class Drawer:
                 if key in ['input', 'output']:
                     continue
                 if not isinstance(value, str) and isinstance(value, Iterable):
-                    value = '_'.join(map(str, value))
+                    value = '-'.join(map(str, value))
                 if key not in revert_dict:
                     revert_dict[key] = {}
                 if value not in revert_dict[key]:
@@ -89,7 +89,7 @@ class Drawer:
 
             revert_dict[value].append(key)
             if len(revert_dict[value]) > 1:
-                differ_dict[key] += f'_file_{key}'
+                differ_dict[key] += f'_FILE_{key}'
 
         return differ_dict
 
@@ -151,8 +151,8 @@ class Drawer:
         target_str = ''
         for key, value in ori_dict.items():
             if not isinstance(value, str) and isinstance(value, Iterable):
-                value = '_'.join(map(str, value))
-            target_str += f'{OMIT_DICT.get(key, key)}_{OMIT_DICT.get(value, value)}_'
+                value = '-'.join(map(str, value))
+            target_str += f'{OMIT_DICT.get(key, key.upper())}_{OMIT_DICT.get(value, value)}_'
         return target_str[:-1]
 
     @staticmethod

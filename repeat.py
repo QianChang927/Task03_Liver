@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from monai.utils import set_determinism
 
-
 def enable_repeat(seed=0):
     random.seed(seed)
     np.random.seed(seed)

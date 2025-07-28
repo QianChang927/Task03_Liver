@@ -7,6 +7,7 @@ import argparse
 from data import DataReader
 from model import UNet3D
 from train import Trainer
+from config import ConfigParser
 from repeat import enable_repeat
 
 from datetime import datetime
@@ -15,6 +16,13 @@ from monai.networks.nets import UNet
 from monai.networks.layers import Norm
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
+# 配置相关变量初始化
+data_reader = None
+model = None
+loss_fn = None
+optimizer = None
+scheduler = None
 
 def parse_tuple(value: str) -> tuple[int]:
     try:
@@ -32,7 +40,7 @@ def add_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('-i', '--input', type=str, help='数据集所在位置')
     parser.add_argument('-o', '--output', type=str, default='./checkpoint', help='模型保存位置')
 
-    parser.add_argument('-e', '--epochs', type=int, default=500, help='训练轮次')
+    parser.add_argument('-e', '--epochs', type=int, default=600, help='训练轮次')
     parser.add_argument('-b', '--batch', type=int, default=2, help='训练集Dataloader的batch_size')
     parser.add_argument('-l', '--lr', type=float, default=1e-03, help='优化器学习率')
     parser.add_argument('-s', '--shuffle', action="store_true", help='是否启用随机化')
@@ -45,8 +53,8 @@ def add_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('-v', '--val_scale', type=float, default=0.1, help='验证集占训练·验证集比例')
     parser.add_argument('-n', '--num_workers', type=int, default=4, help='训练集Dataloader的num_workers')
 
-    parser.add_argument('-S', '--size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理Transforms后输出的向量大小')
-    parser.add_argument('-R', '--roi', type=parse_tuple, default="(64, 64, 64)", help='滑动窗口大小')
+    parser.add_argument('-S', '--size', type=parse_tuple, default="(192, 192, 64)", help='数据预处理Transforms后输出的向量大小')
+    parser.add_argument('-R', '--roi', type=parse_tuple, default="(192, 192, 64)", help='滑动窗口大小')
     parser.add_argument('-W', '--sw_batch', type=int, default=4, help='滑动窗口batch_size')
     return parser
 
@@ -56,8 +64,13 @@ def add_config_json(args: argparse.Namespace, save_dir: str) -> None:
 
     config_dict = vars(args)
     config_dict['system'] = sys.platform
-    print(json.dumps(config_dict, indent=4))
+    # loss_fn相关配置记录
+    prefix = 'loss-'
 
+    # scheduler相关配置记录
+    prefix = 'scheduler-'
+
+    print(json.dumps(config_dict, indent=4))
     with open(config_path, 'w') as f:
         json.dump(config_dict, f, indent=4)
 
@@ -70,7 +83,7 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    save_dir = os.path.abspath(os.path.join(args.output, datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
+    save_dir = os.path.abspath(os.path.join(args.output, datetime.now().strftime('%Y%m%d%H%M')[2:]))
 
     data_reader = DataReader(
         root_dir=args.input,
@@ -90,6 +103,7 @@ if __name__ == '__main__':
             n_channels=args.n_channels,
             norm_layer=args.layer
         )
+
     elif args.model == 'UNetMONAI':
         norm_layer = {
             'BatchNorm': Norm.BATCH,
@@ -106,6 +120,7 @@ if __name__ == '__main__':
             num_res_units=2,
             norm=norm_layer[args.layer]
         )
+
     else:
         raise ValueError('args.model should be in ["UNet3D", "UNetMONAI"]')
 
@@ -144,7 +159,15 @@ if __name__ == '__main__':
         args=args
     )
 
-    add_config_json(args, save_dir)
+    config_parser = ConfigParser(
+        config_dir=save_dir,
+        args=args,
+        data_reader=data_reader,
+        model=model,
+        loss_fn=loss_fn,
+        optimizer=optimizer,
+        scheduler=scheduler
+    )
 
     trainer.run(args.epochs)
     torch.save(trainer.train_criteria, os.path.join(save_dir, 'train_criteria.pt'))

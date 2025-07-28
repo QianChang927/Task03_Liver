@@ -100,10 +100,9 @@ class DataReader:
                     pixdim=(1.5, 1.5, 2.0),
                     mode=('bilinear', 'nearest')
                 ),
-                transforms.Resized(
+                transforms.SpatialPadd(
                     keys=['image', 'label'],
-                    spatial_size=spatial_size,
-                    mode=('bilinear', 'nearest')
+                    spatial_size=spatial_size
                 ),
 
                 transforms.RandCropByPosNegLabeld(
@@ -157,10 +156,9 @@ class DataReader:
                     pixdim=(1.5, 1.5, 2.0),
                     mode=('bilinear', 'nearest')
                 ),
-                transforms.Resized(
+                transforms.SpatialPadd(
                     keys=['image', 'label'],
-                    spatial_size=spatial_size,
-                    mode=('bilinear', 'nearest')
+                    spatial_size=spatial_size
                 )
             ]),
 
@@ -186,10 +184,9 @@ class DataReader:
                     pixdim=(1.5, 1.5, 2.0),
                     mode=('bilinear', 'nearest')
                 ),
-                transforms.Resized(
+                transforms.SpatialPadd(
                     keys=['image', 'label'],
-                    spatial_size=spatial_size,
-                    mode=('bilinear', 'nearest')
+                    spatial_size=spatial_size
                 )
             ])
         }
