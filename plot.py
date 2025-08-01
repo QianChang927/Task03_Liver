@@ -306,8 +306,8 @@ if __name__ == '__main__':
     drawer = Drawer(
         root_dir='./checkpoint',
         modify_process=[
-            { 'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 7, 29), datetime(2025, 7, 30)] },
-            { 'func': ModifyMethods.filter_kwargs, 'args': ['select', {'system': 'linux'}] }
+            # { 'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 7, 29), datetime(2025, 7, 30)] },
+            # { 'func': ModifyMethods.filter_kwargs, 'args': ['select', {'system': 'linux'}] }
         ]
     )
     drawer.plot()

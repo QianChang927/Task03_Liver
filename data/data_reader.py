@@ -10,7 +10,7 @@ from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
 class Config:
-    CROP_SIZE = (96, 96, 96)
+    CROP_SIZE = (64, 64, 64)
     SAMP_SIZE = (64, 64, 64)
     A_MIN = -100
     A_MAX = 400

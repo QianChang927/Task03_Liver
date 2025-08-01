@@ -31,7 +31,7 @@ def add_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--input', type=str, help='数据集所在位置')
     parser.add_argument('--output', type=str, default='./checkpoint', help='模型保存位置')
 
-    parser.add_argument('--epochs', type=int, default=600, help='训练轮次')
+    parser.add_argument('--epochs', type=int, default=500, help='训练轮次')
     parser.add_argument('--batch', type=int, default=2, help='训练集Dataloader的batch_size')
     parser.add_argument('--shuffle', action="store_true", help='是否启用随机化')
 
@@ -46,7 +46,7 @@ def add_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--val_scale', type=float, default=0.1, help='验证集占训练·验证集比例')
     parser.add_argument('--num_workers', type=int, default=4, help='训练集Dataloader的num_workers')
 
-    parser.add_argument('--crop_size', type=parse_tuple, default="(96, 96, 96)", help='数据预处理中填充后的原始向量大小')
+    parser.add_argument('--crop_size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理中填充后的原始向量大小')
     parser.add_argument('--samp_size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理中随机采样的patch大小')
 
     parser.add_argument('--roi_size', type=parse_tuple, default="(64, 64, 64)", help='滑动窗口大小')
@@ -107,7 +107,7 @@ if __name__ == '__main__':
 
     loss_fn = DiceLoss(
         to_onehot_y=True,
-        softmax=True
+        sigmoid=True
     )
 
     if args.optimizer == 'Adam':
@@ -138,7 +138,7 @@ if __name__ == '__main__':
     early_stopping = EarlyStopping(
         model=model,
         save_path=save_dir,
-        patience=10,
+        patience=50,
         stop_criterion='valid',
         save_interval=5,
         verbose=True

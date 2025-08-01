@@ -118,8 +118,13 @@ class TrainerMethods:
             :param y: 真实值
             :return: 返回dice系数
             """
+            import inspect
             from monai.losses import DiceLoss
-            dice_loss = DiceLoss(to_onehot_y=loss_fn.to_onehot_y, softmax=loss_fn.softmax)
+            init_params = inspect.signature(DiceLoss).parameters
+            valid_keys = set(init_params.keys())
+            loss_fn_dict = loss_fn.__dict__
+            filtered_dict = { key: value for key, value in loss_fn_dict.items() if key in valid_keys }
+            dice_loss = DiceLoss(**filtered_dict)
             dice = 1 - dice_loss(y_pred, y).item()
             return dice
 
