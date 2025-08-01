@@ -3,8 +3,9 @@ import math
 import json
 import torch
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Callable
 from matplotlib import pyplot as plt
+from datetime import datetime
 
 OMIT_DICT = {
     'BatchNorm': 'BN',
@@ -12,11 +13,17 @@ OMIT_DICT = {
 }
 
 class Drawer:
-    def __init__(self, root_dir: str, modify_func=None, modify_args=None):
+    def __init__(self, root_dir: str, modify_process: list|dict=None):
         self.root_dir = root_dir
         self.log_dirs = os.listdir(self.root_dir)
-        if modify_func is not None:
-            self.log_dirs = modify_func(self.root_dir, self.log_dirs, modify_args)
+        if modify_process is not None:
+            if not isinstance(modify_process, list):
+                modify_process = [modify_process]
+            for modify_dict in modify_process:
+                modify_func: Callable = modify_dict.get('func', None)
+                modify_args: Iterable = modify_dict.get('args', None)
+                if modify_func is None: continue
+                self.log_dirs = modify_func(self.root_dir, self.log_dirs, modify_args)
         self.log_legends = self.get_log_legends()
 
     def plot(self):
@@ -184,7 +191,7 @@ class ModifyMethods:
     @staticmethod
     def filter_kwargs(root_dir: str, log_dirs: list, args: list) -> list:
         """
-        筛选config中的kwargs，将符合条件的log_dir筛去
+        筛选config中的kwargs，保留/丢弃符合条件的log_dir
         :param root_dir:
         :param log_dirs:
         :param args: 此参数为空时直接返回log_dirs，[(Optional)mode['omit', 'select'], {key1: value1, key2: value2, ...}, {key3: value3, ...}, ...]
@@ -242,11 +249,65 @@ class ModifyMethods:
 
         return new_log_dirs
 
+    @staticmethod
+    def filter_ctime(root_dir: str, log_dirs: list, args: list) -> list:
+        """
+        筛选文件创建时间，保留/丢弃符合条件的log_dir
+        :param root_dir:
+        :param log_dirs:
+        :param args: 此参数为空时直接返回log_dirs，[(Optional)mode['omit', 'select'], time_start, time_end]
+        :return: new_log_dirs
+        """
+
+        if not args or not isinstance(args, list):
+            return log_dirs
+
+        if isinstance(args[0], str):
+            mode = args.pop(0).strip().lower()
+        else:
+            mode = 'select'  # omit: 省略, select: 选取
+
+        if len(args) < 2:
+            return log_dirs
+
+        if mode == 'omit':
+            new_log_dirs = log_dirs.copy()
+        elif mode == 'select':
+            new_log_dirs = []
+        else:
+            raise ValueError('`mode` should be `omit` or `select`')
+
+        time_start = args.pop(0)
+        time_end = args.pop(0)
+
+        def _check(file_ctime):
+            return time_start <= file_ctime < time_end
+
+        def _modify(target_list, element):
+            if mode == 'omit':
+                target_list.remove(element)
+            else:
+                target_list.append(element)
+
+        def _get_ctime(file_path):
+            create_time = os.path.getctime(file_path)
+            return datetime.fromtimestamp(create_time)
+
+        for log_dir in log_dirs:
+            file_path = os.path.join(root_dir, log_dir)
+            file_ctime = _get_ctime(file_path)
+            if _check(file_ctime):
+                _modify(new_log_dirs, log_dir)
+
+        return new_log_dirs
+
 
 if __name__ == '__main__':
     drawer = Drawer(
         root_dir='./checkpoint',
-        modify_func=ModifyMethods.filter_kwargs,
-        modify_args=['select', {'system': 'win32'}]
+        modify_process=[
+            { 'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 7, 29), datetime(2025, 7, 30)] },
+            { 'func': ModifyMethods.filter_kwargs, 'args': ['select', {'system': 'linux'}] }
+        ]
     )
     drawer.plot()

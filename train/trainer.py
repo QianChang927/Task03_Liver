@@ -4,35 +4,30 @@ import argparse
 import warnings
 
 warnings.filterwarnings(action="ignore", category=UserWarning)
-SAVE_EPOCH = 5
 
 class Config:
     ROI_SIZE = (64, 64, 64)
-    SW_BATCH_SIZE = 4
+    SW_BATCH_SIZE = 2
 
 class Trainer:
-    def __init__(self, model, loss_fn, optimizer, train_loader,
+    def __init__(self, model, loss_fn, optimizer, early_stopping, train_loader,
                  valid_loader=None, save_dir: str=None, scheduler=None, device=None,
                  train_process=None, valid_process=None, batch_process=None,
-                 train_compare=None, valid_compare=None,
                  valid_interval=5, args: argparse.ArgumentParser=None) -> None:
         """
         初始化训练器
         :param model: 所使用的神经网络
         :param loss_fn: 损失函数
         :param optimizer: 优化器
+        :param early_stopping: 早停机制，包括进度输出功能
         :param train_loader: 所使用的训练数据集
         :param valid_loader: 所使用的验证数据集
         :param save_dir: 模型保存文件夹
         :param scheduler: 控制学习率变化的调度器
         :param device: 训练所用设备
-        :param train_process: 训练过程函数：train_process(model, epoch, data_loader, batch_process, loss_fn,
-              optimizer, scheduler, device, best_criteria, criteria_compare, save_dir) -> dict|None
-        :param valid_process: 验证过程函数：valid_process(model, epoch, data_loader, batch_process, loss_fn,
-              optimizer, scheduler, device, best_criteria, criteria_compare, save_dir) -> dict|None
+        :param train_process: 训练过程函数：train_process(model, data_loader, batch_process, loss_fn, optimizer, scheduler, device) -> dict|None
+        :param valid_process: 验证过程函数：valid_process(model, data_loader, batch_process, loss_fn, optimizer, scheduler, device) -> dict|None
         :param batch_process: batch处理函数：batch_process(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]
-        :param train_compare: train_criteria比较函数：train_compare(criteria_1: dict|float, criteria_2: dict|float) -> int
-        :param valid_compare: valid_criteria比较函数：valid_compare(criteria_1: dict|float, criteria_2: dict|float) -> int
         :param valid_interval: 验证间隔
         :param args: 命令行参数解析器
         """
@@ -42,13 +37,14 @@ class Trainer:
             self.device = device
 
         if args is not None:
-            Config.ROI_SIZE = args.roi
+            Config.ROI_SIZE = args.roi_size
             Config.SW_BATCH_SIZE = args.sw_batch
 
         self.model = model.to(self.device)
         self.loss_fn = loss_fn.to(self.device)
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.early_stopping = early_stopping
 
         self.train_loader = train_loader
         self.valid_loader = valid_loader
@@ -62,88 +58,35 @@ class Trainer:
         self.batch_process = batch_process if batch_process else TrainerMethods.parse_batch
         self.valid_interval = valid_interval
 
-        self.train_compare = train_compare if train_compare else TrainerMethods.train_compare
-        self.valid_compare = valid_compare if valid_compare else TrainerMethods.valid_compare
-
-        self.train_criteria = {}
-        self.valid_criteria = {}
-
-        self.best_train_criteria = -1
-        self.best_valid_criteria = -1
-
-        self.best_train_epoch = -1
-        self.best_valid_epoch = -1
-
     def run(self, epochs: int=100) -> None:
         """
         Trainer类的运行函数
         :param epochs: 训练轮次
         """
-        def _update(src_dict: dict, new_dict: dict) -> None:
-            """
-            run的私有函数，用于更新字典内容
-            :param src_dict: 源字典
-            :param new_dict: 新字典
-            """
-            for key, value in new_dict.items():
-                if key not in src_dict:
-                    src_dict[key] = []
-                src_dict[key].append(value)
-
-        def _display(criteria: dict, prefix: str='train', concat: int=2) -> None:
-            """
-            run的私有函数，用于输出字典内容
-            :param criteria: 需要输出的字典，此处为评判标准
-            :param prefix: 输出前缀
-            :param concat: 一行输出concat个键值
-            """
-            cache = ''
-            i = 0
-            for key, value in criteria.items():
-                i += 1
-                cache += f"{f'{prefix} {key}: {value:.5f}': <30}"
-                if i % concat == 0:
-                    print(cache)
-            if i % concat:
-                print(cache)
-
         for epoch in range(epochs):
             print(f"{f'Epoch {epoch + 1}/{epochs}':-^60}")
             print(f"lr: {self.optimizer.state_dict()['param_groups'][0]['lr']:.8f}")
 
             self.model.train()
-            train_criteria = self.train_process(self.model, epoch, self.train_loader,
-                                                self.batch_process, self.loss_fn, self.optimizer, self.scheduler,
-                                                self.device, self.best_train_criteria, self.train_compare, self.save_dir)
+            train_criteria = self.train_process(self.model, self.train_loader, self.batch_process,
+                                                self.loss_fn, self.optimizer, self.scheduler, self.device)
             if train_criteria is not None:
-                _display(train_criteria, prefix='train')
-                _update(self.train_criteria, train_criteria)
+                self.early_stopping(epoch, train_criteria, 'train')
 
-                if epoch % SAVE_EPOCH == 0:
-                    torch.save(self.train_criteria, os.path.join(self.save_dir, 'train_criteria.pt'))
-
-                if self.train_compare(self.best_train_criteria, train_criteria):
-                    self.best_train_criteria = train_criteria
-                    self.best_train_epoch = epoch
-
-            if self.valid_criteria is None or epoch % self.valid_interval != 0:
+            if epoch % self.valid_interval != 0:
                 continue
 
             self.model.eval()
             with torch.no_grad():
-                valid_criteria = self.valid_process(self.model, epoch, self.valid_loader,
-                                                    self.batch_process, self.loss_fn, self.optimizer, self.scheduler,
-                                                    self.device, self.best_valid_criteria, self.valid_compare, self.save_dir)
+                valid_criteria = self.valid_process(self.model, self.valid_loader, self.batch_process,
+                                                    self.loss_fn, self.optimizer, self.scheduler, self.device)
                 if valid_criteria is not None:
-                    _display(valid_criteria, prefix='valid')
-                    _update(self.valid_criteria, valid_criteria)
+                    self.early_stopping(epoch, valid_criteria, 'valid')
 
-                    if epoch % SAVE_EPOCH == 0:
-                        torch.save(self.valid_criteria, os.path.join(self.save_dir, 'valid_criteria.pt'))
-
-                    if self.valid_compare(self.best_valid_criteria, valid_criteria):
-                        self.best_valid_criteria = valid_criteria
-                        self.best_valid_epoch = epoch
+            if self.early_stopping.early_stop:
+                print(f"{'':-^60}")
+                print(f"Early stop: {epoch + 1}/{epochs}")
+                break
 
 
 class TrainerMethods:
@@ -151,22 +94,17 @@ class TrainerMethods:
         pass
 
     @staticmethod
-    def train(model, epoch, data_loader,
-              batch_process, loss_fn, optimizer, scheduler,
-              device, best_criteria, criteria_compare, save_dir) -> dict:
+    def train(model, data_loader, batch_process,
+              loss_fn, optimizer, scheduler, device) -> dict:
         """
         训练函数的默认实现
         :param model: 所使用的神经网络，若要在GPU上训练，应在调用此函数前转移
-        :param epoch: 当前训练轮次
         :param data_loader: 所使用的训练数据集
         :param batch_process: batch解析函数，batch_process(batch, device)
         :param loss_fn: 损失函数，若要在GPU上训练，应在调用此函数前转移
         :param optimizer: 优化器
         :param scheduler: 控制动态学习率的调度器
         :param device: 训练所用设备
-        :param best_criteria: 此前最佳评判表现，若要在训练过程中保存，此项为必要项
-        :param criteria_compare: 评判指标比较函数，若要在训练过程中保存，此项为必要项
-        :param save_dir: 模型保存位置，若要在训练过程中保存，该项为必要项
         :return: {'loss': epoch_loss}
         """
         train_step = 0
@@ -210,29 +148,23 @@ class TrainerMethods:
         return {'loss': epoch_loss, 'dice': epoch_dice}
 
     @staticmethod
-    def valid(model, epoch, data_loader,
-              batch_process, loss_fn, optimizer, scheduler,
-              device, best_criteria, criteria_compare, save_dir) -> dict:
+    def valid(model, data_loader, batch_process,
+              loss_fn, optimizer, scheduler, device) -> dict:
         """
         训练函数的默认实现
         :param model: 所使用的神经网络，若要在GPU上训练，应在调用此函数前转移
-        :param epoch: 当前训练轮次
         :param data_loader: 所使用的训练数据集
         :param batch_process: batch解析函数，batch_process(batch, device)
         :param loss_fn: 损失函数，若要在GPU上训练，应在调用此函数前转移
         :param optimizer: 优化器
         :param scheduler: 控制动态学习率的调度器
         :param device: 训练所用设备
-        :param best_criteria: 此前最佳评判表现，若要在训练过程中保存，此项为必要项
-        :param criteria_compare: 评判指标比较函数，若要在训练过程中保存，此项为必要项
-        :param save_dir: 模型保存位置，若要在训练过程中保存，该项为必要项
         :return: {'dice': dice}
         """
         from monai.inferers import sliding_window_inference
         from monai.metrics import DiceMetric
         from monai.data import decollate_batch
         from monai import transforms
-        import os
 
         dice_metric = DiceMetric(include_background=False, reduction='mean')
         post_pred = transforms.Compose([
@@ -251,11 +183,9 @@ class TrainerMethods:
 
         dice = dice_metric.aggregate().item()
         dice_metric.reset()
+
         if scheduler is not None:
             scheduler.step(dice)
-
-        if criteria_compare(best_criteria, dice) and save_dir is not None:
-            torch.save(model.state_dict(), os.path.join(save_dir, 'valid_best_dice.pth'))
 
         return {'dice': dice}
 
@@ -271,27 +201,3 @@ class TrainerMethods:
         label = label.int() & 1
         label = label.float()
         return image.to(device), label.to(device)
-
-    @staticmethod
-    def train_compare(criteria_1: dict|float, criteria_2: dict|float) -> int:
-        """
-        比较train_criteria的优越度
-        :param criteria_1: 源字典|浮点数
-        :param criteria_2: 新字典|浮点数
-        :return: 0-criteria_1更好，1-criteria_2更好，出错时默认返回criteria_1更好
-        """
-        cri_1 = criteria_1.get('loss', 0) if isinstance(criteria_1, dict) else criteria_1
-        cri_2 = criteria_2.get('loss', 0) if isinstance(criteria_2, dict) else criteria_2
-        return int(cri_1 > cri_2)
-
-    @staticmethod
-    def valid_compare(criteria_1: dict|float, criteria_2: dict|float) -> int:
-        """
-        比较valid_criteria的优越度
-        :param criteria_1: 源字典|浮点数
-        :param criteria_2: 新字典|浮点数
-        :return: 0-criteria_1更好，1-criteria_2更好，出错时默认返回criteria_1更好
-        """
-        cri_1 = criteria_1.get('dice', 0) if isinstance(criteria_1, dict) else criteria_1
-        cri_2 = criteria_2.get('dice', 0) if isinstance(criteria_2, dict) else criteria_2
-        return int(cri_1 < cri_2)

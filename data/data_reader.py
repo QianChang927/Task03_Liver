@@ -10,7 +10,8 @@ from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
 class Config:
-    SPATIAL_SIZE = (64, 64, 64)
+    CROP_SIZE = (96, 96, 96)
+    SAMP_SIZE = (64, 64, 64)
     A_MIN = -100
     A_MAX = 400
 
@@ -46,18 +47,17 @@ class DataReader:
         self.num_workers = num_workers
 
         if args is not None:
-            self.remain_nums = args.remains
-            self.val_scale = args.val_scale
-            self.shuffle = args.shuffle
-            self.num_workers_loader = args.num_workers
-            spatial_size = args.size
+            remain_nums = args.remains
+            val_scale = args.val_scale
+            shuffle = args.shuffle
+            num_workers_loader = args.num_workers
+            Config.CROP_SIZE = args.crop_size
+            Config.SAMP_SIZE = args.samp_size
 
-        else:
-            self.remain_nums = remain_nums
-            self.val_scale = val_scale
-            self.shuffle = shuffle
-            self.num_workers_loader = num_workers_loader
-            spatial_size = Config.SPATIAL_SIZE
+        self.remain_nums = remain_nums
+        self.val_scale = val_scale
+        self.shuffle = shuffle
+        self.num_workers_loader = num_workers_loader
 
         if self.val_scale <= 0 or self.val_scale >= 1:
             raise ValueError('val_scale must be in (0, 1)')
@@ -102,7 +102,7 @@ class DataReader:
                 ),
                 transforms.Resized(
                     keys=['image', 'label'],
-                    spatial_size=spatial_size,
+                    spatial_size=Config.CROP_SIZE,
                     mode=('bilinear', 'nearest')
                 ),
 
@@ -110,7 +110,7 @@ class DataReader:
                     keys=['image', 'label'],
                     image_key='image',
                     label_key='label',
-                    spatial_size=spatial_size,
+                    spatial_size=Config.SAMP_SIZE,
                     pos=1,
                     neg=1,
                     num_samples=4
@@ -124,7 +124,7 @@ class DataReader:
                     keys=['image', 'label'],
                     mode=('bilinear', 'nearest'),
                     prob=0.5,
-                    spatial_size=spatial_size,
+                    spatial_size=Config.SAMP_SIZE,
                     rotate_range=(0, 0, np.pi / 15),
                     scale_range=(0.1, 0.1, 0.1)
                 ),
@@ -132,6 +132,13 @@ class DataReader:
                     keys=['image', 'label'],
                     spatial_axis=[0, 1, 2],
                     prob=0.5
+                ),
+                transforms.ToTensord(
+                    keys=['image', 'label']
+                ),
+                transforms.EnsureTyped(
+                    keys=['image', 'label'],
+                    data_type='tensor'
                 )
             ]),
 
@@ -159,8 +166,15 @@ class DataReader:
                 ),
                 transforms.Resized(
                     keys=['image', 'label'],
-                    spatial_size=spatial_size,
+                    spatial_size=Config.CROP_SIZE,
                     mode=('bilinear', 'nearest')
+                ),
+                transforms.ToTensord(
+                    keys=['image', 'label']
+                ),
+                transforms.EnsureTyped(
+                    keys=['image', 'label'],
+                    data_type='tensor'
                 )
             ]),
 
@@ -188,8 +202,15 @@ class DataReader:
                 ),
                 transforms.Resized(
                     keys=['image', 'label'],
-                    spatial_size=spatial_size,
+                    spatial_size=Config.CROP_SIZE,
                     mode=('bilinear', 'nearest')
+                ),
+                transforms.ToTensord(
+                    keys=['image', 'label']
+                ),
+                transforms.EnsureTyped(
+                    keys=['image', 'label'],
+                    data_type='tensor'
                 )
             ])
         }
@@ -200,6 +221,7 @@ class DataReader:
         :return: 分割后的训练集和验证集
         """
         num_files = int(len(self.train_valid_files) * self.val_scale)
+        if num_files < 1: num_files = 1
         return self.train_valid_files[:-num_files], self.train_valid_files[-num_files:]
 
     def get_cache_dataset(self, target: str='train'):

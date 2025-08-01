@@ -6,7 +6,8 @@ import zlib
 
 class ConfigParser:
     def __init__(self, config_dir, args=None, data_reader=None, model=None,
-                 loss_fn=None, optimizer=None, scheduler=None):
+                 loss_fn=None, optimizer=None, scheduler=None,
+                 trainer=None, early_stopping=None):
         self.config_dir = config_dir
         self.config_detail_dir = os.path.join(self.config_dir, 'config')
         os.makedirs(self.config_detail_dir, exist_ok=True)
@@ -17,6 +18,8 @@ class ConfigParser:
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.trainer = trainer
+        self.early_stopping = early_stopping
 
         self.config_path = os.path.join(self.config_dir, 'config.json')
         self.config_dict = { 'system': sys.platform }
@@ -26,6 +29,8 @@ class ConfigParser:
         self.loss_fn_dict = None
         self.optimizer_dict = None
         self.scheduler_dict = None
+        self.trainer_dict = None
+        self.early_stopping_dict = None
 
         def serialize(obj):
             if type(obj).__name__ == 'type':
@@ -82,6 +87,16 @@ class ConfigParser:
             self.parse_scheduler()
             scheduler_path = os.path.join(self.config_detail_dir, 'scheduler.json')
             add_json_config(scheduler_path, 'scheduler', self.scheduler_dict)
+
+        if self.trainer is not None:
+            self.parse_trainer()
+            trainer_path = os.path.join(self.config_detail_dir, 'trainer.json')
+            add_json_config(trainer_path, 'trainer', self.trainer_dict, False)
+
+        if self.early_stopping is not None:
+            self.parse_early_stopping()
+            early_stopping_path = os.path.join(self.config_detail_dir, 'early_stopping.json')
+            add_json_config(early_stopping_path, 'early_stopping', self.early_stopping_dict, False)
 
         with open(self.config_path, 'w') as f:
             json.dump(self.config_dict, f, indent=4, default=serialize)
@@ -159,6 +174,24 @@ class ConfigParser:
         scheduler_dict = self.scheduler.__dict__
         self.scheduler_dict[scheduler_name] = {}
         ConfigParser.parse_process(scheduler_dict, self.scheduler_dict[scheduler_name], key_remove)
+
+    def parse_trainer(self):
+        if self.trainer_dict is None:
+            self.trainer_dict = {}
+        key_remove = re.compile(r'^_.*', flags=re.DOTALL)
+        trainer_name = ConfigParser.get_obj_name(self.trainer)
+        trainer_dict = self.trainer.__dict__
+        self.trainer_dict[trainer_name] = {}
+        ConfigParser.parse_process(trainer_dict, self.trainer_dict[trainer_name], key_remove)
+
+    def parse_early_stopping(self):
+        if self.early_stopping_dict is None:
+            self.early_stopping_dict = {}
+        key_remove = re.compile(r'^_.*', flags=re.DOTALL)
+        early_stopping_name = ConfigParser.get_obj_name(self.early_stopping)
+        early_stopping_dict = self.early_stopping.__dict__
+        self.early_stopping_dict[early_stopping_name] = {}
+        ConfigParser.parse_process(early_stopping_dict, self.early_stopping_dict[early_stopping_name], key_remove)
 
     @staticmethod
     def get_obj_name(obj):

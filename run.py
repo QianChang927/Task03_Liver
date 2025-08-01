@@ -3,8 +3,8 @@ import torch
 import argparse
 
 from data import DataReader
-from model import UNet3D
-from train import Trainer
+from model import UNet3D, VNet3D
+from train import Trainer, EarlyStopping
 from config import ConfigParser
 from repeat import enable_repeat
 
@@ -14,13 +14,6 @@ from monai.networks.nets import UNet
 from monai.networks.layers import Norm
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
-# 配置相关变量初始化
-data_reader = None
-model = None
-loss_fn = None
-optimizer = None
-scheduler = None
 
 def parse_tuple(value: str) -> tuple[int]:
     try:
@@ -35,25 +28,29 @@ def parse_tuple(value: str) -> tuple[int]:
 
 def add_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input', type=str, help='数据集所在位置')
-    parser.add_argument('-o', '--output', type=str, default='./checkpoint', help='模型保存位置')
+    parser.add_argument('--input', type=str, help='数据集所在位置')
+    parser.add_argument('--output', type=str, default='./checkpoint', help='模型保存位置')
 
-    parser.add_argument('-e', '--epochs', type=int, default=600, help='训练轮次')
-    parser.add_argument('-b', '--batch', type=int, default=2, help='训练集Dataloader的batch_size')
-    parser.add_argument('-l', '--lr', type=float, default=1e-03, help='优化器学习率')
-    parser.add_argument('-s', '--shuffle', action="store_true", help='是否启用随机化')
+    parser.add_argument('--epochs', type=int, default=600, help='训练轮次')
+    parser.add_argument('--batch', type=int, default=2, help='训练集Dataloader的batch_size')
+    parser.add_argument('--shuffle', action="store_true", help='是否启用随机化')
 
-    parser.add_argument('-m', '--model', type=str, choices=['UNet3D', 'UNetMONAI'], default='UNet3D', help='训练所选模型')
-    parser.add_argument('-L', '--layer', type=str, choices=['BatchNorm', 'InstanceNorm', 'None'], default='BatchNorm', help='Relu激活层前的添加层')
-    parser.add_argument('-N', '--n_channels', type=parse_tuple, default="(64, 128, 256, 512)", help='仅当model=UNet3D时生效，决定UNet3D的层数')
+    parser.add_argument('--model', type=str, choices=['UNet3D', 'VNet3D', 'UNetMONAI'], default='UNet3D', help='训练所选模型')
+    parser.add_argument('--layer', type=str, choices=['BatchNorm', 'InstanceNorm', 'None'], default='BatchNorm', help='Relu激活层前的添加层')
+    parser.add_argument('--n_channels', type=parse_tuple, default="(64, 128, 256, 512)", help='仅当model=UNet3D时生效，决定UNet3D的层数')
 
-    parser.add_argument('-r', '--remains', type=int, default=None, help='数据集保留个数')
-    parser.add_argument('-v', '--val_scale', type=float, default=0.1, help='验证集占训练·验证集比例')
-    parser.add_argument('-n', '--num_workers', type=int, default=4, help='训练集Dataloader的num_workers')
+    parser.add_argument('--optimizer', type=str, choices=['Adam', 'SGD'], default='Adam', help='优化器选取')
+    parser.add_argument('--lr', type=float, default=1e-03, help='优化器学习率')
 
-    parser.add_argument('-S', '--size', type=parse_tuple, default="(192, 192, 64)", help='数据预处理Transforms后输出的向量大小')
-    parser.add_argument('-R', '--roi', type=parse_tuple, default="(192, 192, 64)", help='滑动窗口大小')
-    parser.add_argument('-W', '--sw_batch', type=int, default=4, help='滑动窗口batch_size')
+    parser.add_argument('--remains', type=int, default=None, help='数据集保留个数')
+    parser.add_argument('--val_scale', type=float, default=0.1, help='验证集占训练·验证集比例')
+    parser.add_argument('--num_workers', type=int, default=4, help='训练集Dataloader的num_workers')
+
+    parser.add_argument('--crop_size', type=parse_tuple, default="(96, 96, 96)", help='数据预处理中填充后的原始向量大小')
+    parser.add_argument('--samp_size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理中随机采样的patch大小')
+
+    parser.add_argument('--roi_size', type=parse_tuple, default="(64, 64, 64)", help='滑动窗口大小')
+    parser.add_argument('--sw_batch', type=int, default=2, help='滑动窗口batch_size')
     return parser
 
 if __name__ == '__main__':
@@ -85,14 +82,17 @@ if __name__ == '__main__':
             n_channels=args.n_channels,
             norm_layer=args.layer
         )
-
+    elif args.model == 'VNet3D':
+        model = VNet3D(
+            in_channels=1,
+            out_channels=2
+        )
     elif args.model == 'UNetMONAI':
         norm_layer = {
             'BatchNorm': Norm.BATCH,
             'InstanceNorm': Norm.INSTANCE,
             'None': None
         }
-
         model = UNet(
             spatial_dims=3,
             in_channels=1,
@@ -102,7 +102,6 @@ if __name__ == '__main__':
             num_res_units=2,
             norm=norm_layer[args.layer]
         )
-
     else:
         raise ValueError('args.model should be in ["UNet3D", "UNetMONAI"]')
 
@@ -111,10 +110,18 @@ if __name__ == '__main__':
         softmax=True
     )
 
-    optimizer = torch.optim.Adam(
-        params=model.parameters(),
-        lr=args.lr
-    )
+    if args.optimizer == 'Adam':
+        optimizer = torch.optim.Adam(
+            params=model.parameters(),
+            lr=args.lr
+        )
+    elif args.optimizer == 'SGD':
+        optimizer = torch.optim.SGD(
+            params=model.parameters(),
+            lr=args.lr
+        )
+    else:
+        raise ValueError('args.optimizer should be in ["Adam", "SGD"]')
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimizer,
@@ -128,11 +135,21 @@ if __name__ == '__main__':
         eps=1e-08
     )
 
+    early_stopping = EarlyStopping(
+        model=model,
+        save_path=save_dir,
+        patience=10,
+        stop_criterion='valid',
+        save_interval=5,
+        verbose=True
+    )
+
     trainer = Trainer(
         model=model,
         loss_fn=loss_fn,
         optimizer=optimizer,
         scheduler=scheduler,
+        early_stopping=early_stopping,
         train_loader=train_loader,
         valid_loader=valid_loader,
         save_dir=save_dir,
@@ -152,5 +169,3 @@ if __name__ == '__main__':
     )
 
     trainer.run(args.epochs)
-    torch.save(trainer.train_criteria, os.path.join(save_dir, 'train_criteria.pt'))
-    torch.save(trainer.valid_criteria, os.path.join(save_dir, 'valid_criteria.pt'))
