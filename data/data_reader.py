@@ -3,24 +3,39 @@ import re
 import sys
 import glob
 import random
-import argparse
 import numpy as np
 
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
+# 类型注解所用库
+from argparse import ArgumentParser
+from typing import Literal
+
 class Config:
-    CROP_SIZE = (64, 64, 64)
-    SAMP_SIZE = (64, 64, 64)
-    A_MIN = -100
-    A_MAX = 400
+    """
+    用于保存常量的配置类
+    """
+    CROP_SIZE: tuple[int, int, int] = (64, 64, 64)
+    SAMP_SIZE: tuple[int, int, int] = (64, 64, 64)
+    A_MIN: int = -100
+    A_MAX: int = 400
 
 class DataReader:
-    def __init__(self, root_dir: str, train_dir: str, label_dir: str, test_dir: str,
-                 args: argparse.ArgumentParser = None,
-                 data_transforms: dict=None, remain_nums: int = None,
-                 val_scale: float=0.2, shuffle: bool=False,
-                 num_workers=4, num_workers_loader=0) -> None:
+    def __init__(
+            self,
+            root_dir: str,
+            train_dir: str,
+            label_dir: str,
+            test_dir: str,
+            args: ArgumentParser = None,
+            data_transforms: dict=None,
+            remain_nums: int = None,
+            val_scale: float=0.2,
+            shuffle: bool=False,
+            num_workers: int=4,
+            num_workers_loader: int=0
+    ) -> None:
         """
         实例化类，注意：DataReader只支持*.nii.gz后缀的文件
         :param root_dir: 数据集根文件夹
@@ -224,10 +239,11 @@ class DataReader:
         if num_files < 1: num_files = 1
         return self.train_valid_files[:-num_files], self.train_valid_files[-num_files:]
 
-    def get_cache_dataset(self, target: str='train'):
+    def get_cache_dataset(self, target: Literal['train', 'valid', 'test']='train') -> None:
         """
         生成DataCache，节约训练效率
-        :param target: 需要生成的目标：['train', 'valid', 'test']
+        :param target: 需要生成的数据集类型：['train', 'valid', 'test']
+        :return:
         """
         if target in self.data_cache:
             return
@@ -239,12 +255,12 @@ class DataReader:
         data_files = self.data_files[target]
         self.data_cache[target] = CacheDataset(data_files, data_transforms, num_workers=self.num_workers)
 
-    def get_dataloader(self, target: str='train', batch_size: int=None) -> DataLoader:
+    def get_dataloader(self, target: Literal['train', 'valid', 'test']='train', batch_size: int=None) -> DataLoader:
         """
         生成DataLoader
-        :param target: 需要生成的目标：['train', 'valid', 'test']
-        :param batch_size: 返回DataLoader的batch_size
-        :return: DataLoader
+        :param target: 需要生成的DataLoader类型：['train', 'valid', 'test']
+        :param batch_size: 需要生成DataLoader的batch_size
+        :return: 生成的DataLoader
         """
         if target not in self.data_cache:
             self.get_cache_dataset(target=target)
@@ -255,7 +271,7 @@ class DataReader:
 
     def set_data_nums(self, num: int) -> None:
         """
-        仅保留data_dicts的前num项
+        保留data_dicts的前num项
         :param num: 要保留的数量
         """
         self.train_valid_files = self.train_valid_files[:num]

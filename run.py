@@ -8,6 +8,7 @@ from train import Trainer, EarlyStopping
 from config import ConfigParser
 from repeat import enable_repeat
 
+from argparse import ArgumentParser
 from datetime import datetime
 from monai.losses import DiceLoss
 from monai.networks.nets import UNet
@@ -15,7 +16,12 @@ from monai.networks.layers import Norm
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-def parse_tuple(value: str) -> tuple[int]:
+def parse_tuple(value: str) -> tuple:
+    """
+    为ArgumentParser解析元组
+    :param value: 传入解析的字符串，形式要求: "(number1, number2, ...)" 或 "number1, number2, ..."
+    :return: 解析后的元组
+    """
     try:
         value = value.strip()
         if value.startswith('(') and value.endswith(')'):
@@ -26,8 +32,12 @@ def parse_tuple(value: str) -> tuple[int]:
     except:
         raise argparse.ArgumentTypeError(f'Invalid tuple forms: {value}. Use "(1, 2, 3)" or "1, 2, 3"')
 
-def add_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
+def add_arg_parser() -> ArgumentParser:
+    """
+    生成ArgumentParser
+    :return: 生成的ArgumentParser
+    """
+    parser = ArgumentParser()
     parser.add_argument('--input', type=str, help='数据集所在位置')
     parser.add_argument('--output', type=str, default='./checkpoint', help='模型保存位置')
 
@@ -97,8 +107,8 @@ if __name__ == '__main__':
             spatial_dims=3,
             in_channels=1,
             out_channels=2,
-            channels=(16, 32, 64, 128, 256),
-            strides=(2, 2, 2, 2),
+            channels=args.n_channels,
+            strides=[2] * len(args.n_channels),
             num_res_units=2,
             norm=norm_layer[args.layer]
         )
@@ -139,6 +149,7 @@ if __name__ == '__main__':
         model=model,
         save_path=save_dir,
         patience=50,
+        min_delta=1e-03,
         stop_criterion='valid',
         save_interval=5,
         verbose=True
@@ -165,7 +176,9 @@ if __name__ == '__main__':
         model=model,
         loss_fn=loss_fn,
         optimizer=optimizer,
-        scheduler=scheduler
+        scheduler=scheduler,
+        early_stopping=early_stopping,
+        trainer=trainer
     )
 
     trainer.run(args.epochs)

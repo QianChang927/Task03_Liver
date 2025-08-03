@@ -4,7 +4,12 @@ import numpy as np
 import torch
 from monai.utils import set_determinism
 
-def enable_repeat(seed=0):
+def enable_repeat(seed: int=0) -> None:
+    """
+    根据种子值固定随机操作
+    :param seed: 随机种子值
+    :return:
+    """
     random.seed(seed)
     np.random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)

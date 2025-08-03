@@ -3,9 +3,12 @@ import math
 import json
 import torch
 
-from collections.abc import Iterable, Callable
+from collections.abc import Iterable
 from matplotlib import pyplot as plt
 from datetime import datetime
+
+# 类型注解所用库
+from typing import Callable, Any
 
 OMIT_DICT = {
     'BatchNorm': 'BN',
@@ -13,7 +16,20 @@ OMIT_DICT = {
 }
 
 class Drawer:
-    def __init__(self, root_dir: str, modify_process: list|dict=None):
+    """
+    进度曲线绘制类
+    """
+    def __init__(
+            self,
+            root_dir: str,
+            modify_process: list[dict[str, Callable[[str, list[str], list[Any]], list[str]]]]=None
+    ) -> None:
+        """
+        类构造函数
+        :param root_dir: 需要绘制的log根目录位置
+        :param modify_process: 根目录预处理函数列表
+        :return:
+        """
         self.root_dir = root_dir
         self.log_dirs = os.listdir(self.root_dir)
         if modify_process is not None:
@@ -26,7 +42,11 @@ class Drawer:
                 self.log_dirs = modify_func(self.root_dir, self.log_dirs, modify_args)
         self.log_legends = self.get_log_legends()
 
-    def plot(self):
+    def plot(self) -> None:
+        """
+        绘制函数
+        :return:
+        """
         if not len(self.log_dirs):
             raise IndexError('log_dirs should not be empty')
 
@@ -35,6 +55,10 @@ class Drawer:
         plt.show()
 
     def get_log_legends(self) -> dict:
+        """
+        获得图例标签字典
+        :return: 键为文件名，值为标签的字典
+        """
         if not len(self.log_dirs):
             return None
 
@@ -101,6 +125,11 @@ class Drawer:
         return differ_dict
 
     def get_drawing_layout(self, log_dir: str) -> tuple:
+        """
+        获得子图行列对
+        :param log_dir: 文件夹名
+        :return: 子图行列对，每行3张子图
+        """
         key_words = {}
         file_dir = os.path.join(self.root_dir, log_dir)
         file_arr = os.listdir(file_dir)
@@ -119,6 +148,11 @@ class Drawer:
         return math.ceil(len(key_words) / 3), min(len(key_words), 3)
 
     def draw_file(self, log_dir: str) -> None:
+        """
+        绘制图
+        :param log_dir: 文件夹名
+        :return:
+        """
         plt.figure('Criteria', (20, 6))
         row, col = self.get_drawing_layout(log_dir)
 
@@ -152,6 +186,11 @@ class Drawer:
 
     @staticmethod
     def dict_to_str(ori_dict: dict) -> str:
+        """
+        字典转字符串
+        :param ori_dict: 需要转换的字典
+        :return: 字符串
+        """
         if not isinstance(ori_dict, dict):
             return str(ori_dict)
 
@@ -164,6 +203,13 @@ class Drawer:
 
     @staticmethod
     def get_file_split(file: str, split: str = '_', ext: str = '.') -> tuple:
+        """
+        获取文件前缀及名字
+        :param file: 文件名
+        :param split: 分隔符
+        :param ext: 文件扩展名分隔符
+        :return: 文件前缀, 文件名（不含扩展名）
+        """
         file = file.split(ext)[0]
         file_split_arr = file.split(split)
         file_mode = file_split_arr[0].strip()
@@ -172,10 +218,20 @@ class Drawer:
 
     @staticmethod
     def get_file_dict(file_path: str) -> dict:
+        """
+        获取文件存储内容
+        :param file_path: 文件路径
+        :return: 文件存储内容
+        """
         return torch.load(file_path)
 
     @staticmethod
     def get_config_json(dir_path: str) -> dict:
+        """
+        获取配置文件config.json内容
+        :param dir_path: 文件夹名
+        :return: config.json
+        """
         file_arr = os.listdir(dir_path)
         if 'config.json' not in file_arr:
             raise FileExistsError('config.json not exists!')
@@ -189,7 +245,7 @@ class Drawer:
 
 class ModifyMethods:
     @staticmethod
-    def filter_kwargs(root_dir: str, log_dirs: list, args: list) -> list:
+    def filter_kwargs(root_dir: str, log_dirs: list[str], args: list[Any]) -> list[str]:
         """
         筛选config中的kwargs，保留/丢弃符合条件的log_dir
         :param root_dir:
@@ -250,7 +306,7 @@ class ModifyMethods:
         return new_log_dirs
 
     @staticmethod
-    def filter_ctime(root_dir: str, log_dirs: list, args: list) -> list:
+    def filter_ctime(root_dir: str, log_dirs: list[str], args: list[Any]) -> list[str]:
         """
         筛选文件创建时间，保留/丢弃符合条件的log_dir
         :param root_dir:

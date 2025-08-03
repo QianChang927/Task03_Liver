@@ -1,13 +1,43 @@
 import os
 import torch
 
+# 类型注解所用库
+from torch.nn import Module
+from typing import Literal, Callable
+
 class EarlyStopping:
-    def __init__(self, model, save_path, patience: int=None,
-                 stop_criterion: str= 'valid', save_interval: int=10,
-                 verbose: bool=False, train_compare=None, valid_compare=None):
+    """
+    早停机制实现类，包含早停机制、进度输出及进度保存
+    """
+    def __init__(
+            self,
+            model: Module,
+            save_path: str,
+            patience: int=None,
+            min_delta: float=0.,
+            stop_criterion: Literal['train', 'valid']= 'valid',
+            save_interval: int=10,
+            verbose: bool=False,
+            train_compare: Callable[[dict | float, dict | float], float]=None,
+            valid_compare: Callable[[dict | float, dict | float], float]=None
+    ) -> None:
+        """
+        早停机制类构造函数
+        :param model: 实例化后的模型类
+        :param save_path: 文件保存位置
+        :param patience: 连续patience个epoch满足条件后停止，为None时表示不需要早停
+        :param min_delta: 模型优化的最小阈值
+        :param stop_criterion: 早停评估标准，以训练还是验证的数据为评判标准
+        :param save_interval: 进度保存间隔
+        :param verbose: 是否输出额外信息
+        :param train_compare: 训练过程比较函数，输出优越差
+        :param valid_compare: 验证过程比较函数，输出优越差
+        :return:
+        """
         self.model = model
         self.save_path = save_path
         self.patience = patience
+        self.min_delta = min_delta
         self.stop_criterion = stop_criterion
         self.save_interval = save_interval
         self.verbose = verbose
@@ -24,7 +54,41 @@ class EarlyStopping:
         self.best_criteria = -1
         self.best_epoch = -1
 
-    def __call__(self, epoch, new_criteria, judge_mode: str):
+    def __call__(self, epoch: int, new_criteria: dict, judge_mode: Literal['train', 'valid']) -> None:
+        """
+        类调用方法
+        :param epoch: 当前轮次
+        :param new_criteria: 当前评判指标
+        :param judge_mode: 评判模式
+        :return:
+        """
+        def _display(criteria: dict, concat: int = 2) -> None:
+            """
+            输出字典内容
+            :param criteria: 需要输出的内容
+            :param concat: 一行输出concat个键值
+            :return:
+            """
+            cache = ''
+            i = 0
+            for key, value in criteria.items():
+                i += 1
+                cache += f"{f'{judge_mode} {key}: {value:.5f}': <30}"
+                if i % concat == 0:
+                    print(cache)
+            if i % concat:
+                print(cache)
+
+        def _save():
+            """
+            更新最佳评判标准并保存模型及评判标准变化曲线
+            :return:
+            """
+            self.best_criteria = new_criteria
+            self.best_epoch = epoch
+            self.save_model()
+            self.save_criteria(judge_mode)
+
         if judge_mode == 'train':
             compare = self.train_compare
         elif judge_mode == 'valid':
@@ -33,7 +97,7 @@ class EarlyStopping:
             raise ValueError('judge_mode must be "train" or "valid"')
 
         self.update(new_criteria, judge_mode)
-        self.display(new_criteria, judge_mode)
+        _display(new_criteria)
 
         if (epoch + 1) % self.save_interval == 0:
             self.save_criteria(judge_mode)
@@ -41,21 +105,24 @@ class EarlyStopping:
         stop_flag = judge_mode == self.stop_criterion
         if not stop_flag: return
 
-        if compare(self.best_criteria, new_criteria):
-            self.best_criteria = new_criteria
-            self.best_epoch = epoch
+        if compare_result := compare(self.best_criteria, new_criteria) > self.min_delta:    # 模型有明显改进
+            _save()
             self.counter = 0
+        elif compare_result > 0:                                                            # 模型仅有略微进步
+            _save()
         else:
             self.counter += 1
+            if self.verbose:
+                print(f"Early stopping: {self.counter}/{self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
 
-        if self.patience and self.counter >= self.patience:
-            self.early_stop = True
-
-    def update(self, new_criteria: dict, update_mode: str):
+    def update(self, new_criteria: dict, update_mode: Literal['train', 'valid']) -> None:
         """
         用于更新字典内容
         :param new_criteria: 新字典
         :param update_mode: 更新模式
+        :return:
         """
         if update_mode == 'train':
             past_criteria = self.train_criteria
@@ -69,33 +136,20 @@ class EarlyStopping:
                 past_criteria[key] = []
             past_criteria[key].append(value)
 
-    @staticmethod
-    def display(criteria, prefix: str, concat: int=2):
+    def save_model(self) -> None:
         """
-        输出字典内容
-        :param criteria: 需要输出的内容
-        :param prefix: 输出前缀
-        :param concat: 一行输出concat个键值
+        保存模型
+        :return:
         """
-        cache = ''
-        i = 0
-        assert prefix in ['train', 'valid']
-        for key, value in criteria.items():
-            i += 1
-            cache += f"{f'{prefix} {key}: {value:.5f}': <30}"
-            if i % concat == 0:
-                print(cache)
-        if i % concat:
-            print(cache)
-
-    def save(self):
-        if self.verbose:
-            print(f"Saving model to {self.save_path}...")
+        if self.verbose: print(f"Saving model to {self.save_path}...")
         torch.save(self.model.state_dict(), os.path.join(self.save_path, 'model.pth'))
-        self.save_criteria('train')
-        self.save_criteria('valid')
 
-    def save_criteria(self, save_mode):
+    def save_criteria(self, save_mode: Literal['train', 'valid']) -> None:
+        """
+        保存评判标准变化曲线
+        :param save_mode: 保存模式
+        :return:
+        """
         if save_mode == 'train':
             criteria = self.train_criteria
         elif save_mode == 'valid':
@@ -104,28 +158,38 @@ class EarlyStopping:
             raise ValueError('save_mode must be "train" or "valid"')
         torch.save(criteria, os.path.join(self.save_path, f'{save_mode}_criteria.pt'))
 
+    def end_display(self) -> None:
+        """
+        结束信息输出
+        :return:
+        """
+        print(f"best criteria: {self.best_criteria} at epoch {self.best_epoch + 1}")
+
 
 class EarlyStoppingMethods:
+    """
+    早停机制默认静态方法类
+    """
     @staticmethod
-    def train_compare(criteria_1: dict | float, criteria_2: dict | float) -> int:
+    def train_compare(criteria_1: dict | float, criteria_2: dict | float) -> float:
         """
-        比较train_criteria的优越度
+        训练标准优越度计算：返回criteria_1与criteria_2的优越差值
         :param criteria_1: 源字典|浮点数
         :param criteria_2: 新字典|浮点数
-        :return: 0-criteria_1更好，1-criteria_2更好，出错时默认返回criteria_1更好
+        :return: >0 criteria_2更优越; <0 criteria_1更优越; =0 二者无区别
         """
-        cri_1 = criteria_1.get('loss', 0) if isinstance(criteria_1, dict) else criteria_1
-        cri_2 = criteria_2.get('loss', 0) if isinstance(criteria_2, dict) else criteria_2
-        return int(cri_1 > cri_2)
+        cri_1 = criteria_1.get('loss', 0.) if isinstance(criteria_1, dict) else criteria_1
+        cri_2 = criteria_2.get('loss', 0.) if isinstance(criteria_2, dict) else criteria_2
+        return float(cri_1 - cri_2)
 
     @staticmethod
-    def valid_compare(criteria_1: dict | float, criteria_2: dict | float) -> int:
+    def valid_compare(criteria_1: dict | float, criteria_2: dict | float) -> float:
         """
-        比较valid_criteria的优越度
+        验证标准优越度计算：返回criteria_1与criteria_2的优越差值
         :param criteria_1: 源字典|浮点数
         :param criteria_2: 新字典|浮点数
-        :return: 0-criteria_1更好，1-criteria_2更好，出错时默认返回criteria_1更好
+        :return: >0 criteria_2更优越; <0 criteria_1更优越; =0 二者无区别
         """
-        cri_1 = criteria_1.get('dice', 0) if isinstance(criteria_1, dict) else criteria_1
-        cri_2 = criteria_2.get('dice', 0) if isinstance(criteria_2, dict) else criteria_2
-        return int(cri_1 < cri_2)
+        cri_1 = criteria_1.get('dice', 0.) if isinstance(criteria_1, dict) else criteria_1
+        cri_2 = criteria_2.get('dice', 0.) if isinstance(criteria_2, dict) else criteria_2
+        return float(cri_2 - cri_1)

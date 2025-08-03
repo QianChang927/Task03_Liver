@@ -1,21 +1,46 @@
 import os
 import torch
-import argparse
 import warnings
 
 warnings.filterwarnings(action="ignore", category=UserWarning)
 
+# 类型注解所用库
+from typing import Callable
+from torch import device, Tensor
+from torch.nn import Module
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
+from argparse import ArgumentParser
+from monai.data import DataLoader
+from train import EarlyStopping
+
 class Config:
-    ROI_SIZE = (64, 64, 64)
-    SW_BATCH_SIZE = 2
+    """
+    用于保存常量的配置类
+    """
+    ROI_SIZE: tuple[int, int, int] = (64, 64, 64)
+    SW_BATCH_SIZE: int = 2
 
 class Trainer:
-    def __init__(self, model, loss_fn, optimizer, early_stopping, train_loader,
-                 valid_loader=None, save_dir: str=None, scheduler=None, device=None,
-                 train_process=None, valid_process=None, batch_process=None,
-                 valid_interval=5, args: argparse.ArgumentParser=None) -> None:
+    def __init__(
+            self,
+            model: Module,
+            loss_fn: Module,
+            optimizer: Optimizer,
+            early_stopping: EarlyStopping,
+            train_loader: DataLoader,
+            valid_loader: DataLoader=None,
+            save_dir: str=None,
+            scheduler: LRScheduler=None,
+            device: device=None,
+            train_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
+            valid_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
+            batch_process: Callable[[dict, device], tuple[Tensor, Tensor]]=None,
+            valid_interval: int=5,
+            args: ArgumentParser=None
+    ) -> None:
         """
-        初始化训练器
+        训练器构造函数
         :param model: 所使用的神经网络
         :param loss_fn: 损失函数
         :param optimizer: 优化器
@@ -30,6 +55,7 @@ class Trainer:
         :param batch_process: batch处理函数：batch_process(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]
         :param valid_interval: 验证间隔
         :param args: 命令行参数解析器
+        :return:
         """
         if device is None:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -60,8 +86,9 @@ class Trainer:
 
     def run(self, epochs: int=100) -> None:
         """
-        Trainer类的运行函数
+        运行函数
         :param epochs: 训练轮次
+        :return:
         """
         for epoch in range(epochs):
             print(f"{f'Epoch {epoch + 1}/{epochs}':-^60}")
@@ -86,16 +113,24 @@ class Trainer:
             if self.early_stopping.early_stop:
                 print(f"{'':-^60}")
                 print(f"Early stop: {epoch + 1}/{epochs}")
+                self.early_stopping.end_display()
                 break
 
 
 class TrainerMethods:
-    def __init__(self) -> None:
-        pass
-
+    """
+    训练器的默认静态方法类
+    """
     @staticmethod
-    def train(model, data_loader, batch_process,
-              loss_fn, optimizer, scheduler, device) -> dict:
+    def train(
+            model: Module,
+            data_loader: DataLoader,
+            batch_process: Callable[[dict, device], tuple[Tensor, Tensor]],
+            loss_fn: Module,
+            optimizer: Optimizer,
+            scheduler: LRScheduler,
+            device: device
+    ) -> dict:
         """
         训练函数的默认实现
         :param model: 所使用的神经网络，若要在GPU上训练，应在调用此函数前转移
@@ -111,7 +146,7 @@ class TrainerMethods:
         epoch_loss = 0
         epoch_dice = 0
 
-        def dice_coef(y_pred, y) -> float:
+        def dice_coef(y_pred: Tensor, y: Tensor) -> float:
             """
             计算dice矩阵
             :param y_pred: 预测值
@@ -153,10 +188,17 @@ class TrainerMethods:
         return {'loss': epoch_loss, 'dice': epoch_dice}
 
     @staticmethod
-    def valid(model, data_loader, batch_process,
-              loss_fn, optimizer, scheduler, device) -> dict:
+    def valid(
+            model: Module,
+            data_loader: DataLoader,
+            batch_process: Callable[[dict, device], tuple[Tensor, Tensor]],
+            loss_fn: Module,
+            optimizer: Optimizer,
+            scheduler: LRScheduler,
+            device: device
+    ) -> dict:
         """
-        训练函数的默认实现
+        验证函数的默认实现
         :param model: 所使用的神经网络，若要在GPU上训练，应在调用此函数前转移
         :param data_loader: 所使用的训练数据集
         :param batch_process: batch解析函数，batch_process(batch, device)
@@ -195,12 +237,12 @@ class TrainerMethods:
         return {'dice': dice}
 
     @staticmethod
-    def parse_batch(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+    def parse_batch(batch: dict, device: device) -> tuple[Tensor, Tensor]:
         """
         解析batch的默认函数
         :param batch: 需要解析的batch
         :param device: 解析后的tensor数据存放在device上
-        :return: 返回解析后的batch，该默认函数的返回类型为(torch.Tensor, torch.Tensor)
+        :return: 返回解析后的batch，该默认函数的返回类型为(Tensor, Tensor)
         """
         image, label = batch['image'], batch['label']
         label = label.int() & 1
