@@ -10,21 +10,21 @@ class EarlyStopping:
     早停机制实现类，包含早停机制、进度输出及进度保存
     """
     def __init__(
-            self,
-            model: Module,
-            save_path: str,
-            patience: int=None,
-            min_delta: float=0.,
-            stop_criterion: Literal['train', 'valid']= 'valid',
-            save_interval: int=10,
-            verbose: bool=False,
-            train_compare: Callable[[dict | float, dict | float], float]=None,
-            valid_compare: Callable[[dict | float, dict | float], float]=None
+        self,
+        model: Module,
+        save_dir: str,
+        patience: int=None,
+        min_delta: float=0.,
+        stop_criterion: Literal['train', 'valid']= 'valid',
+        save_interval: int=10,
+        verbose: bool=False,
+        train_compare: Callable[[dict | float, dict | float], float]=None,
+        valid_compare: Callable[[dict | float, dict | float], float]=None
     ) -> None:
         """
         早停机制类构造函数
         :param model: 实例化后的模型类
-        :param save_path: 文件保存位置
+        :param save_dir: 文件保存位置
         :param patience: 连续patience个epoch满足条件后停止，为None时表示不需要早停
         :param min_delta: 模型优化的最小阈值
         :param stop_criterion: 早停评估标准，以训练还是验证的数据为评判标准
@@ -35,7 +35,7 @@ class EarlyStopping:
         :return:
         """
         self.model = model
-        self.save_path = save_path
+        self.save_dir = save_dir
         self.patience = patience
         self.min_delta = min_delta
         self.stop_criterion = stop_criterion
@@ -62,7 +62,7 @@ class EarlyStopping:
         :param judge_mode: 评判模式
         :return:
         """
-        def _display(criteria: dict, concat: int = 2) -> None:
+        def __display(criteria: dict, concat: int = 2) -> None:
             """
             输出字典内容
             :param criteria: 需要输出的内容
@@ -79,15 +79,15 @@ class EarlyStopping:
             if i % concat:
                 print(cache)
 
-        def _save():
+        def __save():
             """
             更新最佳评判标准并保存模型及评判标准变化曲线
             :return:
             """
             self.best_criteria = new_criteria
             self.best_epoch = epoch
-            self.save_model()
-            self.save_criteria(judge_mode)
+            self.__save_model()
+            self.__save_criteria(judge_mode)
 
         if judge_mode == 'train':
             compare = self.train_compare
@@ -96,20 +96,20 @@ class EarlyStopping:
         else:
             raise ValueError('judge_mode must be "train" or "valid"')
 
-        self.update(new_criteria, judge_mode)
-        _display(new_criteria)
+        self.__update(new_criteria, judge_mode)
+        __display(new_criteria)
 
         if (epoch + 1) % self.save_interval == 0:
-            self.save_criteria(judge_mode)
+            self.__save_criteria(judge_mode)
 
         stop_flag = judge_mode == self.stop_criterion
         if not stop_flag: return
 
         if compare_result := compare(self.best_criteria, new_criteria) > self.min_delta:    # 模型有明显改进
-            _save()
+            __save()
             self.counter = 0
         elif compare_result > 0:                                                            # 模型仅有略微进步
-            _save()
+            __save()
         else:
             self.counter += 1
             if self.verbose:
@@ -117,7 +117,14 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.early_stop = True
 
-    def update(self, new_criteria: dict, update_mode: Literal['train', 'valid']) -> None:
+    def end_display(self) -> None:
+        """
+        结束信息输出
+        :return:
+        """
+        print(f"best criteria: {self.best_criteria} at epoch {self.best_epoch + 1}")
+
+    def __update(self, new_criteria: dict, update_mode: Literal['train', 'valid']) -> None:
         """
         用于更新字典内容
         :param new_criteria: 新字典
@@ -136,15 +143,15 @@ class EarlyStopping:
                 past_criteria[key] = []
             past_criteria[key].append(value)
 
-    def save_model(self) -> None:
+    def __save_model(self) -> None:
         """
         保存模型
         :return:
         """
-        if self.verbose: print(f"Saving model to {self.save_path}...")
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'model.pth'))
+        if self.verbose: print(f"Saving model to {self.save_dir}...")
+        torch.save(self.model.state_dict(), os.path.join(self.save_dir, 'model.pth'))
 
-    def save_criteria(self, save_mode: Literal['train', 'valid']) -> None:
+    def __save_criteria(self, save_mode: Literal['train', 'valid']) -> None:
         """
         保存评判标准变化曲线
         :param save_mode: 保存模式
@@ -156,14 +163,7 @@ class EarlyStopping:
             criteria = self.valid_criteria
         else:
             raise ValueError('save_mode must be "train" or "valid"')
-        torch.save(criteria, os.path.join(self.save_path, f'{save_mode}_criteria.pt'))
-
-    def end_display(self) -> None:
-        """
-        结束信息输出
-        :return:
-        """
-        print(f"best criteria: {self.best_criteria} at epoch {self.best_epoch + 1}")
+        torch.save(criteria, os.path.join(self.save_dir, f'{save_mode}_criteria.pt'))
 
 
 class EarlyStoppingMethods:

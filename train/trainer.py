@@ -10,11 +10,11 @@ from torch import device, Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
-from argparse import ArgumentParser
+from argparse import Namespace
 from monai.data import DataLoader
-from train import EarlyStopping
+from .early_stopping import EarlyStopping
 
-class Config:
+class _Config:
     """
     用于保存常量的配置类
     """
@@ -23,21 +23,21 @@ class Config:
 
 class Trainer:
     def __init__(
-            self,
-            model: Module,
-            loss_fn: Module,
-            optimizer: Optimizer,
-            early_stopping: EarlyStopping,
-            train_loader: DataLoader,
-            valid_loader: DataLoader=None,
-            save_dir: str=None,
-            scheduler: LRScheduler=None,
-            device: device=None,
-            train_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
-            valid_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
-            batch_process: Callable[[dict, device], tuple[Tensor, Tensor]]=None,
-            valid_interval: int=5,
-            args: ArgumentParser=None
+        self,
+        model: Module,
+        loss_fn: Module,
+        optimizer: Optimizer,
+        early_stopping: EarlyStopping,
+        train_loader: DataLoader,
+        valid_loader: DataLoader=None,
+        save_dir: str=None,
+        scheduler: LRScheduler=None,
+        device: device=None,
+        train_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
+        valid_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
+        batch_process: Callable[[dict, device], tuple[Tensor, Tensor]]=None,
+        valid_interval: int=5,
+        args: Namespace=None
     ) -> None:
         """
         训练器构造函数
@@ -63,8 +63,8 @@ class Trainer:
             self.device = device
 
         if args is not None:
-            Config.ROI_SIZE = args.roi_size
-            Config.SW_BATCH_SIZE = args.sw_batch
+            _Config.ROI_SIZE = args.roi_size
+            _Config.SW_BATCH_SIZE = args.sw_batch
 
         self.model = model.to(self.device)
         self.loss_fn = loss_fn.to(self.device)
@@ -123,13 +123,13 @@ class TrainerMethods:
     """
     @staticmethod
     def train(
-            model: Module,
-            data_loader: DataLoader,
-            batch_process: Callable[[dict, device], tuple[Tensor, Tensor]],
-            loss_fn: Module,
-            optimizer: Optimizer,
-            scheduler: LRScheduler,
-            device: device
+        model: Module,
+        data_loader: DataLoader,
+        batch_process: Callable[[dict, device], tuple[Tensor, Tensor]],
+        loss_fn: Module,
+        optimizer: Optimizer,
+        scheduler: LRScheduler,
+        device: device
     ) -> dict:
         """
         训练函数的默认实现
@@ -146,7 +146,7 @@ class TrainerMethods:
         epoch_loss = 0
         epoch_dice = 0
 
-        def dice_coef(y_pred: Tensor, y: Tensor) -> float:
+        def __calc_dice(y_pred: Tensor, y: Tensor) -> float:
             """
             计算dice矩阵
             :param y_pred: 预测值
@@ -180,7 +180,7 @@ class TrainerMethods:
             optimizer.step(closure)
 
             epoch_loss += _loss
-            epoch_dice += dice_coef(_outputs, labels)
+            epoch_dice += __calc_dice(_outputs, labels)
             print(f"{train_step}/{len(data_loader)}, train loss: {_loss:.4f}")
 
         epoch_loss /= train_step
@@ -189,13 +189,13 @@ class TrainerMethods:
 
     @staticmethod
     def valid(
-            model: Module,
-            data_loader: DataLoader,
-            batch_process: Callable[[dict, device], tuple[Tensor, Tensor]],
-            loss_fn: Module,
-            optimizer: Optimizer,
-            scheduler: LRScheduler,
-            device: device
+        model: Module,
+        data_loader: DataLoader,
+        batch_process: Callable[[dict, device], tuple[Tensor, Tensor]],
+        loss_fn: Module,
+        optimizer: Optimizer,
+        scheduler: LRScheduler,
+        device: device
     ) -> dict:
         """
         验证函数的默认实现
@@ -223,7 +223,7 @@ class TrainerMethods:
 
         for batch in data_loader:
             images, labels = batch_process(batch, device)
-            valid_outputs = sliding_window_inference(images, Config.ROI_SIZE, Config.SW_BATCH_SIZE, model)
+            valid_outputs = sliding_window_inference(images, _Config.ROI_SIZE, _Config.SW_BATCH_SIZE, model)
             valid_outputs = [post_pred(i) for i in decollate_batch(valid_outputs)]
             valid_labels = [post_label(i) for i in decollate_batch(labels)]
             dice_metric(y_pred=valid_outputs, y=valid_labels)

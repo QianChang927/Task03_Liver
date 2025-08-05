@@ -2,6 +2,8 @@
   <dictionary name="project">
     <words>
       <w>listifiable</w>
+      <w>pixdim</w>
+      <w>pythonhashseed</w>
       <w>stringfiable</w>
     </words>
   </dictionary>

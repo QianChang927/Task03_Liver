@@ -1,3 +1,3 @@
-from .data_reader import DataReader
+from .data_reader import DataReaderMSD
 
-__all__ = ['DataReader']
+__all__ = ['DataReaderMSD']

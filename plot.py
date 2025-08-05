@@ -1,6 +1,7 @@
 import os
 import math
 import json
+import glob
 import torch
 
 from collections.abc import Iterable
@@ -8,60 +9,95 @@ from matplotlib import pyplot as plt
 from datetime import datetime
 
 # 类型注解所用库
-from typing import Callable, Any
+from typing import Callable, Any, Sequence
 
 OMIT_DICT = {
     'BatchNorm': 'BN',
     'InstanceNorm': 'IN'
 }
 
-class Drawer:
+
+class Plot:
     """
-    进度曲线绘制类
+    曲线绘制类
     """
     def __init__(
-            self,
-            root_dir: str,
-            modify_process: list[dict[str, Callable[[str, list[str], list[Any]], list[str]]]]=None
+        self,
+        root_dir: str,
+        process_seq: Sequence[dict] | dict=None,
+        plot_col: int = 3,
+        file_ext: str = '.pt',
+        file_seg: str = '_',
+        fig_size: tuple[int, int] = (20, 6)
     ) -> None:
         """
-        类构造函数
-        :param root_dir: 需要绘制的log根目录位置
-        :param modify_process: 根目录预处理函数列表
-        :return:
+        绘制类构造函数
+        :param root_dir: log根目录位置
+        :param process_seq: log根目录预处理序列，内部元素形如{'func': Callable, 'args': Sequence}
+        :param plot_col: 子图每列张数
+        :param file_ext: 曲线文件后缀
+        :param file_seg: 曲线文件前缀
+        :param fig_size: 绘制图像大小
         """
+        # 参数初始化
         self.root_dir = root_dir
-        self.log_dirs = os.listdir(self.root_dir)
-        if modify_process is not None:
-            if not isinstance(modify_process, list):
-                modify_process = [modify_process]
-            for modify_dict in modify_process:
-                modify_func: Callable = modify_dict.get('func', None)
-                modify_args: Iterable = modify_dict.get('args', None)
-                if modify_func is None: continue
-                self.log_dirs = modify_func(self.root_dir, self.log_dirs, modify_args)
-        self.log_legends = self.get_log_legends()
+        self.process_seq = process_seq
+        self.plot_col = plot_col
+        self.file_ext = file_ext if '*' in file_ext else f"*{file_ext}"
+        self.file_seg = file_seg
+        self.fig_size = fig_size
+        # 获取日志文件夹
+        self.__get_log_dirs()
+        # 获取标签字典
+        self.__get_log_signs()
+        # 生成子图布局
+        self.__load_log_info()
 
-    def plot(self) -> None:
-        """
-        绘制函数
-        :return:
-        """
-        if not len(self.log_dirs):
-            raise IndexError('log_dirs should not be empty')
-
+    def plot(self):
+        assert len(self.log_dirs)
         for log_dir in self.log_dirs:
-            self.draw_file(log_dir)
+            plt.figure('Criteria', self.fig_size)
+            row, col = self.log_subplot[log_dir]
+            plot_dict = self.log_content[log_dir]
+
+            subplot_index = 1
+            subplot_dict = {}
+
+            for key, value in plot_dict.items():
+                if key not in subplot_dict:
+                    subplot_dict[key] = subplot_index
+                    subplot_index += 1
+
+                index = subplot_dict[key]
+                plt.subplot(row, col, index)
+
+                plt.title(key)
+                plt.xlabel('epoch')
+
+                plt.plot([x + 1 for x in range(len(value))], value, label=self.log_signs[log_dir])
+                plt.grid(True)
+                plt.legend()
         plt.show()
 
-    def get_log_legends(self) -> dict:
+    def __get_log_dirs(self) -> None:
         """
-        获得图例标签字典
-        :return: 键为文件名，值为标签的字典
+        生成需要处理的日志文件夹位置
+        :return:
         """
-        if not len(self.log_dirs):
-            return None
+        self.log_dirs = os.listdir(self.root_dir)
+        if self.process_seq is None: return
+        if not isinstance(self.process_seq, Sequence): self.process_seq = [self.process_seq]
+        for preprocess in self.process_seq:
+            process_func: Callable = preprocess.get('func', None)
+            process_args: Sequence = preprocess.get('args', None)
+            if process_func is None: continue
+            self.log_dirs = process_func(self.root_dir, self.log_dirs, process_args)
 
+    def __get_log_signs(self) -> None:
+        """
+        生成每个日志文件对应的标签图例
+        :return:
+        """
         '''
         思路：
         1.  log_dir1 <=> { 'attr1': 'value1', 'attr2': 'value2' } -> { 'attr1': { 'value1': ['log_dir1', ...] }, 'attr2': { 'value2': ['log_dir1', ...] } }
@@ -73,157 +109,88 @@ class Drawer:
             2)  若一致，则differ_dict忽略attr*
         4.  differ_dict[log_dir*] = dict_to_str(differ_dict[log_dir*])
         '''
-
-        revert_dict = {}
-        differ_dict = {}
-
-        # 生成反置键值对
-        for log_dir in self.log_dirs:
-            config_dict = Drawer.get_config_json(os.path.join(self.root_dir, log_dir))
-            for key, value in config_dict.items():
-                # 忽略输入和输出文件夹设置
-                if key in ['input', 'output']:
-                    continue
+        def __dict_to_str(origin_dict: dict) -> str:
+            """
+            字典转字符串
+            :param origin_dict: 需要转换的字典
+            :return: 字符串
+            """
+            if not isinstance(origin_dict, dict):
+                return str(origin_dict)
+            target_str = ''
+            for key, value in origin_dict.items():
                 if not isinstance(value, str) and isinstance(value, Iterable):
                     value = '-'.join(map(str, value))
-                if key not in revert_dict:
-                    revert_dict[key] = {}
-                if value not in revert_dict[key]:
-                    revert_dict[key][value] = []
+                target_str += f'{OMIT_DICT.get(key, key.upper())}_{OMIT_DICT.get(value, value)}_'
+            return target_str[:-1]
+
+        # 无日志情况排除
+        if not len(self.log_dirs): return
+
+        # 初始化图例
+        self.log_signs = {}
+
+        # 生成反置键值对
+        revert_dict = {}
+        for log_dir in self.log_dirs:
+            config = Plot.get_config_json(os.path.join(self.root_dir, log_dir))
+            key_omit = ['root_dir', 'save_dir']
+            for key, value in config.items():
+                if key in key_omit: continue
+                if not isinstance(value, str) and isinstance(value, Sequence):
+                    value = '-'.join(map(str, value))
+                if key not in revert_dict: revert_dict[key] = {}
+                if value not in revert_dict[key]: revert_dict[key][value] = []
                 revert_dict[key][value].append(log_dir)
 
-        # 检测反置键值对的长度
+        # 生成图例字典
         for key, value in revert_dict.items():
             if len(value.keys()) == 1:
                 log_dir_length = 0
-                for v, log_dirs in value.items():
+                for log_dirs in value.values():
                     log_dir_length += len(log_dirs)
-
                 if log_dir_length == len(self.log_dirs):
                     continue
-
             for v, log_dirs in value.items():
                 for log_dir in log_dirs:
-                    if log_dir not in differ_dict:
-                        differ_dict[log_dir] = {}
-                    differ_dict[log_dir][key] = v
+                    if log_dir not in self.log_signs:
+                        self.log_signs[log_dir] = {}
+                    self.log_signs[log_dir][key] = v
 
-        # 将differ_dict内部的键值对转为字符串
-        for key, value in differ_dict.items():
-            differ_dict[key] = Drawer.dict_to_str(differ_dict[key])
+        # 图例字典值转换
+        for key, value in self.log_signs.items():
+            self.log_signs[key] = __dict_to_str(value)
 
-        # 防止不同log_dir的differ_dict[log_dir]完全一致
+        # 防止不同log_dir的__log_signs完全一致
         revert_dict = {}
-        for key, value in differ_dict.items():
+        for key, value in self.log_signs.items():
             if value not in revert_dict:
                 revert_dict[value] = []
-
             revert_dict[value].append(key)
             if len(revert_dict[value]) > 1:
-                differ_dict[key] += f'_FILE_{key}'
+                self.log_signs[key] += f'_FILE_{key}'
 
-        return differ_dict
-
-    def get_drawing_layout(self, log_dir: str) -> tuple:
+    def __load_log_info(self):
         """
-        获得子图行列对
-        :param log_dir: 文件夹名
-        :return: 子图行列对，每行3张子图
-        """
-        key_words = {}
-        file_dir = os.path.join(self.root_dir, log_dir)
-        file_arr = os.listdir(file_dir)
-
-        for file in file_arr:
-            file_mode, file_content = Drawer.get_file_split(file)
-            if file_content != 'criteria':
-                continue
-
-            file_dict = Drawer.get_file_dict(os.path.join(file_dir, file))
-            for key in file_dict.keys():
-                k = f'{file_mode}_{key}'
-                if k not in key_words:
-                    key_words[k] = 0
-
-        return math.ceil(len(key_words) / 3), min(len(key_words), 3)
-
-    def draw_file(self, log_dir: str) -> None:
-        """
-        绘制图
-        :param log_dir: 文件夹名
+        生成子图布局及日志文件信息
         :return:
         """
-        plt.figure('Criteria', (20, 6))
-        row, col = self.get_drawing_layout(log_dir)
+        self.log_content = {}
+        self.log_subplot = {}
 
-        subplot_index = 1
-        subplot_dict = {}
+        for log_dir in self.log_dirs:
+            plot_files = glob.glob(os.path.join(self.root_dir, log_dir, self.file_ext))
+            if not len(plot_files): continue
 
-        file_arr = os.listdir(os.path.join(self.root_dir, log_dir))
-        file_dir = os.path.join(self.root_dir, log_dir)
+            self.log_content[log_dir] = {}
+            for plot_file in plot_files:
+                plot_dict = torch.load(plot_file)
+                file_prefix = os.path.basename(plot_file).split(self.file_seg)[0]
+                for key, value in plot_dict.items():
+                    self.log_content[log_dir][f"{file_prefix} {key}"] = value
 
-        for file in file_arr:
-            file_mode, file_content = Drawer.get_file_split(file)
-            if file_content != 'criteria':
-                continue
-
-            file_dict = Drawer.get_file_dict(os.path.join(file_dir, file))
-            for key, value in file_dict.items():
-                subplot_title = f'{file_mode} {key}'
-                if subplot_title not in subplot_dict:
-                    subplot_dict[subplot_title] = subplot_index
-                    subplot_index += 1
-
-                index = subplot_dict[subplot_title]
-                plt.subplot(row, col, index)
-
-                plt.title(subplot_title)
-                plt.xlabel('epoch')
-
-                plt.plot([x + 1 for x in range(len(value))], value, label=self.log_legends[log_dir])
-                plt.grid(True)
-                plt.legend()
-
-    @staticmethod
-    def dict_to_str(ori_dict: dict) -> str:
-        """
-        字典转字符串
-        :param ori_dict: 需要转换的字典
-        :return: 字符串
-        """
-        if not isinstance(ori_dict, dict):
-            return str(ori_dict)
-
-        target_str = ''
-        for key, value in ori_dict.items():
-            if not isinstance(value, str) and isinstance(value, Iterable):
-                value = '-'.join(map(str, value))
-            target_str += f'{OMIT_DICT.get(key, key.upper())}_{OMIT_DICT.get(value, value)}_'
-        return target_str[:-1]
-
-    @staticmethod
-    def get_file_split(file: str, split: str = '_', ext: str = '.') -> tuple:
-        """
-        获取文件前缀及名字
-        :param file: 文件名
-        :param split: 分隔符
-        :param ext: 文件扩展名分隔符
-        :return: 文件前缀, 文件名（不含扩展名）
-        """
-        file = file.split(ext)[0]
-        file_split_arr = file.split(split)
-        file_mode = file_split_arr[0].strip()
-        file_content = file_split_arr[-1].strip()
-        return file_mode, file_content
-
-    @staticmethod
-    def get_file_dict(file_path: str) -> dict:
-        """
-        获取文件存储内容
-        :param file_path: 文件路径
-        :return: 文件存储内容
-        """
-        return torch.load(file_path)
+            key_nums = len(self.log_content[log_dir])
+            self.log_subplot[log_dir] = (math.ceil(key_nums / self.plot_col), min(key_nums, self.plot_col))
 
     @staticmethod
     def get_config_json(dir_path: str) -> dict:
@@ -232,14 +199,13 @@ class Drawer:
         :param dir_path: 文件夹名
         :return: config.json
         """
-        file_arr = os.listdir(dir_path)
-        if 'config.json' not in file_arr:
+        config_path = os.path.join(dir_path, 'config.json')
+        if not os.path.exists(config_path):
             raise FileExistsError('config.json not exists!')
 
         config = {}
-        with open(os.path.join(dir_path, 'config.json'), 'r', encoding='UTF-8') as f:
+        with open(config_path, 'r', encoding='UTF-8') as f:
             config = json.load(f)
-
         return config
 
 
@@ -260,7 +226,7 @@ class ModifyMethods:
         if isinstance(args[0], str):
             mode = args.pop(0).strip().lower()
         else:
-            mode = 'select'   # omit: 省略, select: 选取
+            mode = 'select'  # omit: 省略, select: 选取
 
         if len(args) < 1:
             return log_dirs
@@ -289,9 +255,9 @@ class ModifyMethods:
                 return not _flag
 
         for log_dir in log_dirs:
-            config = Drawer.get_config_json(os.path.join(root_dir, log_dir))
-
+            config = Plot.get_config_json(os.path.join(root_dir, log_dir))
             flag = filter_init
+
             for kwargs in args:
                 if _judge(flag): break
                 for key, value in kwargs.items():
@@ -359,11 +325,15 @@ class ModifyMethods:
 
 
 if __name__ == '__main__':
-    drawer = Drawer(
+    plot = Plot(
         root_dir='./checkpoint',
-        modify_process=[
-            # { 'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 7, 29), datetime(2025, 7, 30)] },
-            # { 'func': ModifyMethods.filter_kwargs, 'args': ['select', {'system': 'linux'}] }
-        ]
+        process_seq=[
+            {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 1), datetime(2025, 8, 31)]},
+            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'system': 'linux'}]}
+        ],
+        plot_col=3,
+        file_ext='.pt',
+        file_seg='_',
+        fig_size=(20, 6)
     )
-    drawer.plot()
+    plot.plot()

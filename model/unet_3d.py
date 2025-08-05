@@ -11,11 +11,11 @@ class UNet3D(nn.Module):
     3D U-Net类，总体框架分为编码部分和解码部分
     """
     def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            n_channels: list=None,
-            norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        self,
+        in_channels: int,
+        out_channels: int,
+        n_channels: list=None,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
         3D U-Net类构造函数
@@ -97,10 +97,10 @@ class DoubleConv(nn.Module):
     双层卷积，包含两个卷积层
     """
     def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        self,
+        in_channels: int,
+        out_channels: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
         双层卷积类构造函数
@@ -149,10 +149,10 @@ class DownSample(nn.Module):
     编码器，执行下采样操作
     """
     def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        self,
+        in_channels: int,
+        out_channels: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
         编码器类构造函数
@@ -182,11 +182,11 @@ class UpSample(nn.Module):
     解码器，执行上采样操作
     """
     def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            encoder_channels: int,
-            norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        self,
+        in_channels: int,
+        out_channels: int,
+        encoder_channels: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
         编码器类构造函数
@@ -218,9 +218,9 @@ class OutConv(nn.Module):
     输出层，包含一个卷积层
     """
     def __init__(
-            self,
-            in_channels: int,
-            out_channels: int
+        self,
+        in_channels: int,
+        out_channels: int
     ) -> None:
         """
         输出层类构造函数

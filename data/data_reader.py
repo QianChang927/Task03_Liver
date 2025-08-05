@@ -1,284 +1,366 @@
 import os
-import re
-import sys
+import json
 import glob
 import random
+import inspect
 import numpy as np
 
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
 
 # 类型注解所用库
-from argparse import ArgumentParser
 from typing import Literal
+from argparse import Namespace
+from monai.transforms import Compose
 
-class Config:
-    """
-    用于保存常量的配置类
-    """
-    CROP_SIZE: tuple[int, int, int] = (64, 64, 64)
-    SAMP_SIZE: tuple[int, int, int] = (64, 64, 64)
-    A_MIN: int = -100
-    A_MAX: int = 400
 
-class DataReader:
+class DataReaderMSD:
+    """
+    用于读取MSD相关数据集的DataReader类
+    """
     def __init__(
-            self,
-            root_dir: str,
-            train_dir: str,
-            label_dir: str,
-            test_dir: str,
-            args: ArgumentParser = None,
-            data_transforms: dict=None,
-            remain_nums: int = None,
-            val_scale: float=0.2,
-            shuffle: bool=False,
-            num_workers: int=4,
-            num_workers_loader: int=0
+        self,
+        root_dir: str,
+        args: Namespace=None,
+        remains: int=None,
+        val_scale: float=0.1,
+        shuffle: bool=False,
+        num_workers_cache: int=4,
+        num_workers_loader: int=4,
+        batch: int=2,
+        batch_other: int=1,
+        crop_size: tuple = (64, 64, 64),
+        samp_size: tuple = (64, 64, 64),
+        train_transforms: Compose = None,
+        valid_transforms: Compose = None,
+        test_transforms: Compose = None
     ) -> None:
         """
-        实例化类，注意：DataReader只支持*.nii.gz后缀的文件
-        :param root_dir: 数据集根文件夹
-        :param train_dir: 训练集文件夹名
-        :param label_dir: 标签文件夹名
-        :param test_dir: 测试集文件夹名
-        :param args: 命令行参数解析器
-        :param data_transforms: 以字典形式存放的transforms，{'train': monai.transforms, 'valid': monai.transforms, 'test': monai.transforms}
-        :param remain_nums: 保留文件数量（训练集+验证集）
-        :param val_scale: 验证集占数据集的百分比，范围(0, 1)
-        :param shuffle: 是否打乱顺序
-        :param num_workers: CacheDataset的加载线程数
-        :param num_workers_loader: DataLoader的加载线程数
-        """
-        if sys.platform.startswith('win'):
-            pattern = lambda x: int(re.findall(r'\d+', x)[0])
-        else:
-            pattern = None
-
-        self.train_images = sorted(glob.glob(os.path.join(root_dir, train_dir, '*.nii.gz')), key=pattern)
-        self.train_labels = sorted(glob.glob(os.path.join(root_dir, label_dir, '*.nii.gz')), key=pattern)
-        self.test_images = sorted(glob.glob(os.path.join(root_dir, test_dir, '*.nii.gz')), key=pattern)
-
-        self.num_workers = num_workers
-
-        if args is not None:
-            remain_nums = args.remains
-            val_scale = args.val_scale
-            shuffle = args.shuffle
-            num_workers_loader = args.num_workers
-            Config.CROP_SIZE = args.crop_size
-            Config.SAMP_SIZE = args.samp_size
-
-        self.remain_nums = remain_nums
-        self.val_scale = val_scale
-        self.shuffle = shuffle
-        self.num_workers_loader = num_workers_loader
-
-        if self.val_scale <= 0 or self.val_scale >= 1:
-            raise ValueError('val_scale must be in (0, 1)')
-
-        self.train_valid_files = [{'image': image_name, 'label': label_name}
-                                  for image_name, label_name in zip(self.train_images, self.train_labels)]
-
-        self.data_files = {'test': [{'image': image_name} for image_name in self.test_images]}
-
-        if self.shuffle:
-            random.shuffle(self.train_valid_files)
-            random.shuffle(self.data_files['test'])
-
-        if isinstance(self.remain_nums, int):
-            self.set_data_nums(self.remain_nums)
-
-        self.data_files['train'], self.data_files['valid'] = self.get_train_and_valid_file()
-        self.data_cache = {}
-
-        self.data_transforms = data_transforms if data_transforms is not None else {
-            'train': transforms.Compose([
-                transforms.LoadImaged(keys=['image', 'label']),
-                transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.ScaleIntensityRanged(
-                    keys=['image'],
-                    a_min=Config.A_MIN,
-                    a_max=Config.A_MAX,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True
-                ),
-                transforms.CropForegroundd(
-                    keys=['image', 'label'],
-                    source_key='image',
-                    allow_smaller=True
-                ),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(
-                    keys=['image', 'label'],
-                    pixdim=(1.5, 1.5, 2.0),
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.Resized(
-                    keys=['image', 'label'],
-                    spatial_size=Config.CROP_SIZE,
-                    mode=('bilinear', 'nearest')
-                ),
-
-                transforms.RandCropByPosNegLabeld(
-                    keys=['image', 'label'],
-                    image_key='image',
-                    label_key='label',
-                    spatial_size=Config.SAMP_SIZE,
-                    pos=1,
-                    neg=1,
-                    num_samples=4
-                ),
-                transforms.RandRotate90d(
-                    keys=['image', 'label'],
-                    prob=0.5,
-                    spatial_axes=[0, 2]
-                ),
-                transforms.RandAffined(
-                    keys=['image', 'label'],
-                    mode=('bilinear', 'nearest'),
-                    prob=0.5,
-                    spatial_size=Config.SAMP_SIZE,
-                    rotate_range=(0, 0, np.pi / 15),
-                    scale_range=(0.1, 0.1, 0.1)
-                ),
-                transforms.RandFlipd(
-                    keys=['image', 'label'],
-                    spatial_axis=[0, 1, 2],
-                    prob=0.5
-                ),
-                transforms.ToTensord(
-                    keys=['image', 'label']
-                ),
-                transforms.EnsureTyped(
-                    keys=['image', 'label'],
-                    data_type='tensor'
-                )
-            ]),
-
-            'valid': transforms.Compose([
-                transforms.LoadImaged(keys=['image', 'label']),
-                transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.ScaleIntensityRanged(
-                    keys=['image'],
-                    a_min=Config.A_MIN,
-                    a_max=Config.A_MAX,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True
-                ),
-                transforms.CropForegroundd(
-                    keys=['image', 'label'],
-                    source_key='image',
-                    allow_smaller=True
-                ),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(
-                    keys=['image', 'label'],
-                    pixdim=(1.5, 1.5, 2.0),
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.Resized(
-                    keys=['image', 'label'],
-                    spatial_size=Config.CROP_SIZE,
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.ToTensord(
-                    keys=['image', 'label']
-                ),
-                transforms.EnsureTyped(
-                    keys=['image', 'label'],
-                    data_type='tensor'
-                )
-            ]),
-
-            'test': transforms.Compose([
-                transforms.LoadImaged(keys=['image', 'label']),
-                transforms.EnsureChannelFirstd(keys=['image', 'label']),
-                transforms.ScaleIntensityRanged(
-                    keys=['image'],
-                    a_min=Config.A_MIN,
-                    a_max=Config.A_MAX,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True
-                ),
-                transforms.CropForegroundd(
-                    keys=['image', 'label'],
-                    source_key='image',
-                    allow_smaller=True
-                ),
-                transforms.Orientationd(keys=['image', 'label'], axcodes='RAS'),
-                transforms.Spacingd(
-                    keys=['image', 'label'],
-                    pixdim=(1.5, 1.5, 2.0),
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.Resized(
-                    keys=['image', 'label'],
-                    spatial_size=Config.CROP_SIZE,
-                    mode=('bilinear', 'nearest')
-                ),
-                transforms.ToTensord(
-                    keys=['image', 'label']
-                ),
-                transforms.EnsureTyped(
-                    keys=['image', 'label'],
-                    data_type='tensor'
-                )
-            ])
-        }
-
-    def get_train_and_valid_file(self) -> tuple:
-        """
-        获取train_files, valid_files
-        :return: 分割后的训练集和验证集
-        """
-        num_files = int(len(self.train_valid_files) * self.val_scale)
-        if num_files < 1: num_files = 1
-        return self.train_valid_files[:-num_files], self.train_valid_files[-num_files:]
-
-    def get_cache_dataset(self, target: Literal['train', 'valid', 'test']='train') -> None:
-        """
-        生成DataCache，节约训练效率
-        :param target: 需要生成的数据集类型：['train', 'valid', 'test']
+        读取MSD相关数据集的类构造函数
+        :param root_dir: 数据集所在位置
+        :param args: 命令行传入参数
+        :param remains: 训练-验证集的数据个数，该参数为None时选取所有数据作为训练-验证集
+        :param val_scale: 训练-验证集中验证集所占的比例，训练/验证集中均至少含有一个数据
+        :param shuffle: 是否启用随机化
+        :param num_workers_cache: CacheDataset加载数据的进程数
+        :param num_workers_loader: DataLoader加载数据的进程数
+        :param batch: 训练过程中DataLoader的batch_size
+        :param batch_other: 验证/测试过程中DataLoader的batch_size
+        :param crop_size: 数据预处理中填充/Resize后的张量大小
+        :param samp_size: 数据预处理中随机采样后patch的张量大小
+        :param train_transforms: 训练预处理
+        :param valid_transforms: 验证预处理
+        :param test_transforms: 测试预处理
         :return:
         """
-        if target in self.data_cache:
-            return
+        # 初始化参数
+        self.root_dir = root_dir
+        self.args = args
+        self.remains = remains
+        self.val_scale = val_scale
+        self.shuffle = shuffle
+        self.num_workers_cache = num_workers_cache
+        self.num_workers_loader = num_workers_loader
+        self.batch = batch
+        self.batch_other = batch_other
+        self.crop_size = crop_size
+        self.samp_size = samp_size
+        # ArgumentParser有效时更新参数
+        if isinstance(self.args, Namespace):
+            self.__update_params()
+        # 检查参数合法性
+        self.__check_available()
+        # 生成文件路径字典列表
+        self.config = self.__get_config()
+        self.train_valid_files = self.__get_files('train')
+        _keys = list(self.train_valid_files[0].keys())
+        # 参数功能实装
+        self.train_files = []
+        self.valid_files = []
+        self.test_files = self.__get_files('test', _key=_keys[0])
+        self.__enable_params()
+        # 生成数据预处理Transforms
+        _transforms = TransformsMSD(keys=_keys, keys_test=_keys[0], crop_size=self.crop_size, samp_size=self.samp_size)
+        self.train_transforms = train_transforms if train_transforms is not None else _transforms.train_transforms
+        self.valid_transforms = valid_transforms if valid_transforms is not None else _transforms.valid_transforms
+        self.test_transforms = test_transforms if test_transforms is not None else _transforms.test_transforms
 
-        if target not in self.data_transforms:
-            raise ValueError("target must be in ['train', 'valid', 'test']")
-
-        data_transforms = self.data_transforms[target]
-        data_files = self.data_files[target]
-        self.data_cache[target] = CacheDataset(data_files, data_transforms, num_workers=self.num_workers)
-
-    def get_dataloader(self, target: Literal['train', 'valid', 'test']='train', batch_size: int=None) -> DataLoader:
+    def get_dataloader(self, loader_type: Literal['train', 'valid', 'test']) -> DataLoader:
         """
         生成DataLoader
-        :param target: 需要生成的DataLoader类型：['train', 'valid', 'test']
-        :param batch_size: 需要生成DataLoader的batch_size
+        :param loader_type: 需要生成的DataLoader类型
         :return: 生成的DataLoader
         """
-        if target not in self.data_cache:
-            self.get_cache_dataset(target=target)
-        if batch_size is None:
-            batch_size = 2 if target == 'train' else 1
-        return DataLoader(self.data_cache[target], num_workers=self.num_workers_loader,
-                          batch_size=batch_size, shuffle=self.shuffle)
+        assert loader_type in ['train', 'valid', 'test']
+        if not hasattr(self, f'{loader_type}_cache'):
+            self.__get_cache(loader_type)
+        _dataset = getattr(self, f'{loader_type}_cache')
+        _batch_size = self.batch if loader_type == 'train' else self.batch_other
+        return DataLoader(dataset=_dataset, num_workers=self.num_workers_loader, batch_size=_batch_size, shuffle=self.shuffle)
 
-    def set_data_nums(self, num: int) -> None:
+    def __update_params(self) -> None:
         """
-        保留data_dicts的前num项
-        :param num: 要保留的数量
+        通过self.args更新已有的类属性成员
+        :return:
         """
-        self.train_valid_files = self.train_valid_files[:num]
+        params = inspect.signature(self.__init__).parameters
+        params = list(params.keys())
+        for param in params:
+            if not hasattr(self.args, param): continue
+            setattr(self, param, getattr(self.args, param))
+
+    def __check_available(self) -> None:
+        """
+        检查属性合法性，属性非法则抛出异常
+        :return:
+        """
+        assert (isinstance(self.remains, int) and self.remains >= 1) or self.remains is None
+        assert isinstance(self.val_scale, float) and 0 <= self.val_scale <= 1
+        assert isinstance(self.num_workers_cache, int) and self.num_workers_cache >= 1
+        assert isinstance(self.num_workers_loader, int) and self.num_workers_loader >= 1
+        assert isinstance(self.batch, int) and self.batch >= 1
+        assert isinstance(self.batch_other, int) and self.batch_other >= 1
+
+    def __enable_params(self) -> None:
+        """
+        使参数生效
+        :return:
+        """
+        if self.shuffle:
+            random.shuffle(self.train_valid_files)
+            random.shuffle(self.test_files)
+
+        if self.remains:
+            self.train_valid_files = self.train_valid_files[:self.remains]
+
+        if len(self.train_valid_files) <= 1:
+            raise RuntimeError('train and valid files should be at least 2 file')
+
+        split_nums = int(len(self.train_valid_files) * self.val_scale)
+        if split_nums < 1: split_nums = 1
+
+        self.train_files = self.train_valid_files[:-split_nums]
+        self.valid_files = self.train_valid_files[-split_nums:]
+
+    def __get_config(self) -> dict:
+        """
+        通过读取MSD数据集中*.json文件获取数据集相关信息
+        :return: 以字典形式保存的*.json文件
+        """
+        json_pattern = os.path.join(self.root_dir, '*.json')
+        json_path = next(glob.iglob(json_pattern))
+        with open(json_path) as f:
+            config = json.load(f)
+        return config
+
+    def __get_files(self, file_type: Literal['train', 'test'], _key: str='image') -> list:
+        """
+        获取*.json中数据路径信息列表
+        :param file_type: 需要获取的数据类型
+        :param _key: 原始路径信息列表不为字典列表时的键
+        :return: 解析后的路径信息列表
+        """
+        assert file_type in ['train', 'test']
+        _key_map = {'train': 'training', 'test': 'test'}
+        config_list: list = self.config[_key_map[file_type]]
+        for i, config in enumerate(config_list):
+            if not isinstance(config, dict):
+                config_list[i] = {_key: os.path.join(self.root_dir, config)}
+                continue
+            for key, value in config.items():
+                config_list[i][key] = os.path.join(self.root_dir, value)
+        return config_list
+
+    def __get_cache(self, cache_type: Literal['train', 'valid', 'test']) -> None:
+        """
+        生成CacheDataset以节省数据加载时间
+        :param cache_type: 需要生成的缓存数据集类型
+        :return:
+        """
+        assert cache_type in ['train', 'valid', 'test']
+        _transform = getattr(self, f'{cache_type}_transforms')
+        assert _transform is not None
+        _data = getattr(self, f'{cache_type}_files')
+        assert _data is not None and len(_data) > 0
+        setattr(self, f'{cache_type}_cache', CacheDataset(data=_data, transform=_transform, num_workers=self.num_workers_cache))
+
+
+class TransformsMSD:
+    """
+    适用于DataReaderMSD的数据预处理transforms
+    """
+    def __init__(
+        self,
+        keys: list,
+        keys_test: str,
+        crop_size: tuple,
+        samp_size: tuple
+    ) -> None:
+        """
+        生成transforms的类构造函数
+        :param keys: 训练/验证集的键
+        :param keys_test: 测试集的键
+        :param crop_size: 数据预处理中填充/Resize后的张量大小
+        :param samp_size: 数据预处理中随机采样后patch的张量大小
+        """
+        self.keys = keys
+        self.keys_test = keys_test
+        self.crop_size = crop_size
+        self.samp_size = samp_size
+        self.train_transforms = None
+        self.valid_transforms = None
+        self.test_transforms = None
+        self._min = -57
+        self._max = 164
+        self._pixdim = (1.5, 1.5, 2.0)
+        self.__create_transforms()
+
+    def __create_transforms(self) -> None:
+        """
+        生成transforms
+        :return:
+        """
+        self.train_transforms = Compose([
+            transforms.LoadImaged(keys=self.keys),
+            transforms.EnsureChannelFirstd(keys=self.keys),
+            transforms.ScaleIntensityRanged(
+                keys=self.keys[0],
+                a_min=self._min,
+                a_max=self._max,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True
+            ),
+            transforms.CropForegroundd(
+                keys=self.keys,
+                source_key=self.keys[0],
+                allow_smaller=True
+            ),
+            transforms.Orientationd(keys=self.keys, axcodes='RAS'),
+            transforms.Spacingd(
+                keys=self.keys,
+                pixdim=self._pixdim,
+                mode=('bilinear', 'nearest')
+            ),
+            transforms.Resized(
+                keys=self.keys,
+                spatial_size=self.crop_size,
+                mode=('bilinear', 'nearest')
+            ),
+
+            transforms.RandCropByPosNegLabeld(
+                keys=self.keys,
+                image_key=self.keys[0],
+                label_key=self.keys[-1],
+                spatial_size=self.samp_size,
+                pos=1,
+                neg=1,
+                num_samples=4
+            ),
+            transforms.RandRotate90d(
+                keys=self.keys,
+                prob=0.5,
+                spatial_axes=[0, 2]
+            ),
+            transforms.RandAffined(
+                keys=self.keys,
+                mode=('bilinear', 'nearest'),
+                prob=0.5,
+                spatial_size=self.samp_size,
+                rotate_range=(0, 0, np.pi / 15),
+                scale_range=(0.1, 0.1, 0.1)
+            ),
+            transforms.RandFlipd(
+                keys=self.keys,
+                spatial_axis=[0, 1, 2],
+                prob=0.5
+            ),
+            transforms.ToTensord(
+                keys=self.keys
+            ),
+            transforms.EnsureTyped(
+                keys=self.keys,
+                data_type='tensor'
+            )
+        ])
+
+        self.valid_transforms = Compose([
+            transforms.LoadImaged(keys=self.keys),
+            transforms.EnsureChannelFirstd(keys=self.keys),
+            transforms.ScaleIntensityRanged(
+                keys=self.keys[0],
+                a_min=self._min,
+                a_max=self._max,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True
+            ),
+            transforms.CropForegroundd(
+                keys=self.keys,
+                source_key=self.keys[0],
+                allow_smaller=True
+            ),
+            transforms.Orientationd(keys=self.keys, axcodes='RAS'),
+            transforms.Spacingd(
+                keys=self.keys,
+                pixdim=self._pixdim,
+                mode=('bilinear', 'nearest')
+            ),
+            transforms.Resized(
+                keys=self.keys,
+                spatial_size=self.crop_size,
+                mode=('bilinear', 'nearest')
+            ),
+            transforms.ToTensord(
+                keys=self.keys
+            ),
+            transforms.EnsureTyped(
+                keys=self.keys,
+                data_type='tensor'
+            )
+        ])
+
+        self.test_transforms = Compose([
+            transforms.LoadImaged(keys=self.keys_test),
+            transforms.EnsureChannelFirstd(keys=self.keys_test),
+            transforms.ScaleIntensityRanged(
+                keys=self.keys_test,
+                a_min=self._min,
+                a_max=self._max,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True
+            ),
+            transforms.CropForegroundd(
+                keys=self.keys_test,
+                source_key=self.keys_test,
+                allow_smaller=True
+            ),
+            transforms.Orientationd(keys=self.keys_test, axcodes='RAS'),
+            transforms.Spacingd(
+                keys=self.keys_test,
+                pixdim=self._pixdim,
+                mode='bilinear'
+            ),
+            transforms.Resized(
+                keys=self.keys_test,
+                spatial_size=self.crop_size,
+                mode='bilinear'
+            ),
+            transforms.ToTensord(
+                keys=self.keys_test
+            ),
+            transforms.EnsureTyped(
+                keys=self.keys_test,
+                data_type='tensor'
+            )
+        ])
 
 
 if __name__ == '__main__':
-    data_reader = DataReader('../../Task_Dataset/Task03_Liver', 'imagesTr',
-                             'labelsTr', 'imagesTs', remain_nums=10, val_scale=0.1, shuffle=True)
-    train_loader = data_reader.get_dataloader(target='train')
-    valid_loader = data_reader.get_dataloader(target='valid')
+    from parser import ArgParser
+    parser = ArgParser()
+    args = parser.parse_args()
+    data_reader = DataReaderMSD(root_dir='../../Task_Dataset/Task03_Liver', args=args)
+    train_loader = data_reader.get_dataloader('train')
+    valid_loader = data_reader.get_dataloader('valid')

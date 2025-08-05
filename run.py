@@ -1,96 +1,41 @@
 import os
 import torch
-import argparse
 
-from data import DataReader
+from data import DataReaderMSD
 from model import UNet3D, VNet3D
 from train import Trainer, EarlyStopping
-from config import ConfigParser
-from repeat import enable_repeat
+from parser import ArgParser, ConfigParser
+from repeat import RepeatSetter
 
-from argparse import ArgumentParser
 from datetime import datetime
 from monai.losses import DiceLoss
 from monai.networks.nets import UNet
 from monai.networks.layers import Norm
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
-def parse_tuple(value: str) -> tuple:
-    """
-    为ArgumentParser解析元组
-    :param value: 传入解析的字符串，形式要求: "(number1, number2, ...)" 或 "number1, number2, ..."
-    :return: 解析后的元组
-    """
-    try:
-        value = value.strip()
-        if value.startswith('(') and value.endswith(')'):
-            value = value[1:-1]
-        value = value.split(',')
-        value = [s.strip() for s in value]
-        return tuple(map(int, value))
-    except:
-        raise argparse.ArgumentTypeError(f'Invalid tuple forms: {value}. Use "(1, 2, 3)" or "1, 2, 3"')
-
-def add_arg_parser() -> ArgumentParser:
-    """
-    生成ArgumentParser
-    :return: 生成的ArgumentParser
-    """
-    parser = ArgumentParser()
-    parser.add_argument('--input', type=str, help='数据集所在位置')
-    parser.add_argument('--output', type=str, default='./checkpoint', help='模型保存位置')
-
-    parser.add_argument('--epochs', type=int, default=500, help='训练轮次')
-    parser.add_argument('--batch', type=int, default=2, help='训练集Dataloader的batch_size')
-    parser.add_argument('--shuffle', action="store_true", help='是否启用随机化')
-
-    parser.add_argument('--model', type=str, choices=['UNet3D', 'VNet3D', 'UNetMONAI'], default='UNet3D', help='训练所选模型')
-    parser.add_argument('--layer', type=str, choices=['BatchNorm', 'InstanceNorm', 'None'], default='BatchNorm', help='Relu激活层前的添加层')
-    parser.add_argument('--n_channels', type=parse_tuple, default="(64, 128, 256, 512)", help='仅当model=UNet3D时生效，决定UNet3D的层数')
-
-    parser.add_argument('--optimizer', type=str, choices=['Adam', 'SGD'], default='Adam', help='优化器选取')
-    parser.add_argument('--lr', type=float, default=1e-03, help='优化器学习率')
-
-    parser.add_argument('--remains', type=int, default=None, help='数据集保留个数')
-    parser.add_argument('--val_scale', type=float, default=0.1, help='验证集占训练·验证集比例')
-    parser.add_argument('--num_workers', type=int, default=4, help='训练集Dataloader的num_workers')
-
-    parser.add_argument('--crop_size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理中填充后的原始向量大小')
-    parser.add_argument('--samp_size', type=parse_tuple, default="(64, 64, 64)", help='数据预处理中随机采样的patch大小')
-
-    parser.add_argument('--roi_size', type=parse_tuple, default="(64, 64, 64)", help='滑动窗口大小')
-    parser.add_argument('--sw_batch', type=int, default=2, help='滑动窗口batch_size')
-    return parser
-
 if __name__ == '__main__':
-    parser = add_arg_parser()
+    parser = ArgParser()
     args = parser.parse_args()
 
     if not args.shuffle:
-        enable_repeat()
+        repeat_setter = RepeatSetter(seed=args.seed)
+        repeat_setter()
 
+    save_dir = os.path.abspath(os.path.join(args.save_dir, datetime.now().strftime('%Y%m%d%H%M')[2:]))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    save_dir = os.path.abspath(os.path.join(args.output, datetime.now().strftime('%Y%m%d%H%M')[2:]))
-
-    data_reader = DataReader(
-        root_dir=args.input,
-        train_dir='imagesTr',
-        label_dir='labelsTr',
-        test_dir='imagesTs',
+    data_reader = DataReaderMSD(
+        root_dir=args.root_dir,
         args=args
     )
-
-    train_loader = data_reader.get_dataloader(target='train', batch_size=args.batch)
-    valid_loader = data_reader.get_dataloader(target='valid', batch_size=1)
+    train_loader = data_reader.get_dataloader('train')
+    valid_loader = data_reader.get_dataloader('valid')
 
     if args.model == 'UNet3D':
         model = UNet3D(
             in_channels=1,
             out_channels=2,
             n_channels=args.n_channels,
-            norm_layer=args.layer
+            norm_layer=args.norm_layer
         )
     elif args.model == 'VNet3D':
         model = VNet3D(
@@ -110,7 +55,7 @@ if __name__ == '__main__':
             channels=args.n_channels,
             strides=[2] * len(args.n_channels),
             num_res_units=2,
-            norm=norm_layer[args.layer]
+            norm=norm_layer[args.norm_layer]
         )
     else:
         raise ValueError('args.model should be in ["UNet3D", "UNetMONAI"]')
@@ -147,7 +92,7 @@ if __name__ == '__main__':
 
     early_stopping = EarlyStopping(
         model=model,
-        save_path=save_dir,
+        save_dir=save_dir,
         patience=50,
         min_delta=1e-03,
         stop_criterion='valid',
@@ -170,15 +115,16 @@ if __name__ == '__main__':
     )
 
     config_parser = ConfigParser(
-        config_dir=save_dir,
+        save_dir=save_dir,
+        device=device,
         args=args,
         data_reader=data_reader,
         model=model,
         loss_fn=loss_fn,
         optimizer=optimizer,
         scheduler=scheduler,
+        trainer=trainer,
         early_stopping=early_stopping,
-        trainer=trainer
     )
 
     trainer.run(args.epochs)
