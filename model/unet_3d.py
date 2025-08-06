@@ -30,15 +30,13 @@ class UNet3D(nn.Module):
         self.out_channels = out_channels
         self.norm_layer = norm_layer
 
-        if n_channels is None:
-            n_channels = [64, 128, 256, 512]
-        if len(n_channels) <= 1:
-            raise ValueError('n_channels should have at least 2 elements')
+        if n_channels is None: n_channels = [64, 128, 256, 512]
+        if len(n_channels) <= 1: raise ValueError('n_channels should have at least 2 elements')
         self.n_channels = n_channels
 
         self.in_conv = DoubleConv(self.in_channels, self.n_channels[0], norm_layer=self.norm_layer)
-        self.encoder = self._build_layer(mode='encoder')
-        self.decoder = self._build_layer(mode='decoder')
+        self.encoder = self.__build_layers(mode='encoder')
+        self.decoder = self.__build_layers(mode='decoder')
         self.out_conv = OutConv(self.n_channels[0], self.out_channels)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -47,24 +45,31 @@ class UNet3D(nn.Module):
         :param x: 传入张量
         :return: 计算结果
         """
+        # 特征缓存
+        features = []
+
         # 输入层
         x = self.in_conv(x)
+        features.append(x)
 
         # 编码过程
-        features = [x]
         for layer in self.encoder:
-            features.append(layer(features[-1]))
+            x = layer(x)
+            features.append(x)
+
+        # 瓶颈层处理，丢弃此层的特征避免错误残差计算
+        features.pop()
 
         # 解码过程
-        x = features[-1]
-        for layer, feature in zip(self.decoder, reversed(features[:-1])):
-            x = layer(x, feature)
+        for layer in self.decoder:
+            x = layer(x, features.pop())
 
         # 输出层
         x = self.out_conv(x)
+
         return x
 
-    def _build_layer(self, mode: Literal['encoder', 'decoder']) -> ModuleList:
+    def __build_layers(self, mode: Literal['encoder', 'decoder']) -> ModuleList:
         """
         构造中间层
         :param mode: 构造模式，选择构造编码器或解码器
@@ -200,15 +205,15 @@ class UpSample(nn.Module):
         self.up = nn.ConvTranspose3d(in_channels, in_channels, kernel_size=2, stride=2)
         self.conv = DoubleConv(in_channels + encoder_channels, out_channels, norm_layer=norm_layer)
 
-    def forward(self, decoder: Tensor, encoder: Tensor) -> Tensor:
+    def forward(self, x: Tensor, encoder: Tensor) -> Tensor:
         """
         前向传播
-        :param decoder: 传入张量
+        :param x: 传入张量
         :param encoder: 从编码器传来用于连接的张量
         :return: 计算结果
         """
-        decoder = self.up(decoder)
-        x = torch.cat([encoder, decoder], dim=1)
+        x = self.up(x)
+        x = torch.cat([encoder, x], dim=1 if len(x.shape) == 5 else 0)
         x = self.conv(x)
         return x
 
@@ -251,6 +256,6 @@ if __name__ == '__main__':
     ).to(device)
     print(model)
 
-    tensor = torch.randn([8, 1, 96, 96, 96]).to(device)
+    tensor = torch.randn([8, 1, 128, 128, 64]).to(device)
     output = model(tensor)
     print(output.shape)

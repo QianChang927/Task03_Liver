@@ -37,12 +37,12 @@ class ArgParser:
         parser.add_argument('--val_scale', type=float, default=0.1, help='训练-验证集中验证集所占的比例(默认为0.1)，训练/验证集中均至少含有一个数据')
         parser.add_argument('--num_workers_cache', type=int, default=4, help='CacheDataset加载数据的进程数')
         parser.add_argument('--num_workers_loader', type=int, default=4, help='DataLoader加载数据的进程数')
-        parser.add_argument('--crop_size', type=__parse_tuple, default="(64, 64, 64)", help='数据预处理中填充/Resize后的张量大小')
-        parser.add_argument('--samp_size', type=__parse_tuple, default="(64, 64, 64)", help='数据预处理中随机采样后patch的张量大小')
+        parser.add_argument('--crop_size', type=__parse_tuple, default="(128, 128, 64)", help='数据预处理中填充/Resize后的张量大小')
+        parser.add_argument('--samp_size', type=__parse_tuple, default="(128, 128, 64)", help='数据预处理中随机采样后patch的张量大小')
 
         # Model相关设置
         parser.add_argument('--model', type=str, choices=['UNet3D', 'VNet3D', 'UNetMONAI'], help='需要调用的模型名')
-        parser.add_argument('--n_channels', type=__parse_tuple, default="(64, 128, 256, 512)", help='模型中间层的通道数设置(默认为"(64, 128, 256, 512)")')
+        parser.add_argument('--n_channels', type=__parse_tuple, default="(16, 32, 64, 128, 256)", help='模型中间层的通道数设置(默认为"(16, 32, 64, 128, 256)")')
         parser.add_argument('--norm_layer', type=str, choices=['BatchNorm', 'InstanceNorm', 'None'], default='BatchNorm', help='归一化层的类型(默认为`BatchNorm`)')
 
         # Optimizer相关设置
@@ -55,7 +55,7 @@ class ArgParser:
         parser.add_argument('--batch_other', type=int, default=1, help='验证/测试过程中DataLoader的batch_size')
         parser.add_argument('--shuffle', action='store_true', help='是否启用随机化')
         parser.add_argument('--seed', type=int, default=0, help='shuffle为False时生效，用于固定随机数种子(默认为0)')
-        parser.add_argument('--roi_size', type=__parse_tuple, default="(64, 64, 64)", help='验证过程中滑动窗口的大小')
+        parser.add_argument('--roi_size', type=__parse_tuple, default="(128, 128, 64)", help='验证过程中滑动窗口的大小')
         parser.add_argument('--sw_batch', type=int, default=2, help='验证过程中滑动窗口的batch_size')
         parser.add_argument('--overlap', type=float, default=0.25, help='验证过程中滑动窗口的重叠率')
 

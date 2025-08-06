@@ -40,7 +40,9 @@ if __name__ == '__main__':
     elif args.model == 'VNet3D':
         model = VNet3D(
             in_channels=1,
-            out_channels=2
+            out_channels=2,
+            n_channels=args.n_channels,
+            layer_nums=[1, 2] + [3] * (len(args.n_channels) - 2)
         )
     elif args.model == 'UNetMONAI':
         norm_layer = {
@@ -93,7 +95,7 @@ if __name__ == '__main__':
     early_stopping = EarlyStopping(
         model=model,
         save_dir=save_dir,
-        patience=50,
+        patience=args.epochs // 10,
         min_delta=1e-03,
         stop_criterion='valid',
         save_interval=5,
