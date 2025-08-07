@@ -170,7 +170,7 @@ class ConfigParser:
 
         if not key_is_args and add_to_config_json:
             hash_hex_str = __dict_to_hash(config_dict)
-            self.config_args.update({f'{key_name}_obj': hash_hex_str})
+            self.config_args.update({f'{key_name}-obj': hash_hex_str})
 
     @staticmethod
     def __get_obj_name(obj: partial | InnerClass) -> str:

@@ -16,7 +16,6 @@ OMIT_DICT = {
     'InstanceNorm': 'IN'
 }
 
-
 class Plot:
     """
     曲线绘制类
@@ -169,6 +168,11 @@ class Plot:
             revert_dict[value].append(key)
             if len(revert_dict[value]) > 1:
                 self.log_signs[key] += f'_FILE_{key}'
+
+        # 防止为空
+        if len(self.log_signs) < 1:
+            for log_dir in self.log_dirs:
+                self.log_signs[log_dir] = f'FILE_{log_dir}'
 
     def __load_log_info(self):
         """
@@ -328,8 +332,8 @@ if __name__ == '__main__':
     plot = Plot(
         root_dir='./checkpoint',
         process_seq=[
-            {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 1), datetime(2025, 8, 31)]},
-            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'system': 'linux'}]}
+            {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 5), datetime(2025, 8, 31)]},
+            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'model': 'UNet3D'}]}
         ],
         plot_col=3,
         file_ext='.pt',

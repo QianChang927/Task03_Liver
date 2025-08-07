@@ -213,12 +213,13 @@ class TrainerMethods:
         from monai.data import decollate_batch
         from monai import transforms
 
-        dice_metric = DiceMetric(include_background=False, reduction='mean')
+        dice_metric = DiceMetric(reduction='mean')
         post_pred = transforms.Compose([
-            transforms.AsDiscrete(argmax=True, to_onehot=model.out_channels)
+            transforms.Activations(sigmoid=True),
+            transforms.AsDiscrete(threshold=0.5)
         ])
         post_label = transforms.Compose([
-            transforms.AsDiscrete(to_onehot=model.out_channels)
+            transforms.AsDiscrete()
         ])
 
         for batch in data_loader:

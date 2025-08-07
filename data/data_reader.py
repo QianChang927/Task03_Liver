@@ -3,7 +3,6 @@ import json
 import glob
 import random
 import inspect
-import numpy as np
 
 from monai import transforms
 from monai.data import CacheDataset, DataLoader
@@ -12,7 +11,6 @@ from monai.data import CacheDataset, DataLoader
 from typing import Literal
 from argparse import Namespace
 from monai.transforms import Compose
-
 
 class DataReaderMSD:
     """
@@ -212,7 +210,7 @@ class TransformsMSD:
         self.test_transforms = None
         self._min = -57
         self._max = 164
-        self._pixdim = (1.5, 1.5, 2.0)
+        self._pixdim = (0.8, 0.8, 1.5)
         self.__create_transforms()
 
     def __create_transforms(self) -> None:
@@ -223,6 +221,12 @@ class TransformsMSD:
         self.train_transforms = Compose([
             transforms.LoadImaged(keys=self.keys),
             transforms.EnsureChannelFirstd(keys=self.keys),
+            transforms.Orientationd(keys=self.keys, axcodes='RAS'),
+            transforms.Spacingd(
+                keys=self.keys,
+                pixdim=self._pixdim,
+                mode=('bilinear', 'nearest')
+            ),
             transforms.ScaleIntensityRanged(
                 keys=self.keys[0],
                 a_min=self._min,
@@ -231,21 +235,9 @@ class TransformsMSD:
                 b_max=1.0,
                 clip=True
             ),
-            transforms.CropForegroundd(
-                keys=self.keys,
-                source_key=self.keys[0],
-                allow_smaller=True
-            ),
-            transforms.Orientationd(keys=self.keys, axcodes='RAS'),
-            transforms.Spacingd(
-                keys=self.keys,
-                pixdim=self._pixdim,
-                mode=('bilinear', 'nearest')
-            ),
             transforms.Resized(
                 keys=self.keys,
-                spatial_size=self.crop_size,
-                mode=('bilinear', 'nearest')
+                spatial_size=self.crop_size
             ),
 
             transforms.RandCropByPosNegLabeld(
@@ -255,25 +247,21 @@ class TransformsMSD:
                 spatial_size=self.samp_size,
                 pos=1,
                 neg=1,
-                num_samples=4
-            ),
-            transforms.RandRotate90d(
-                keys=self.keys,
-                prob=0.5,
-                spatial_axes=[0, 2]
-            ),
-            transforms.RandAffined(
-                keys=self.keys,
-                mode=('bilinear', 'nearest'),
-                prob=0.5,
-                spatial_size=self.samp_size,
-                rotate_range=(0, 0, np.pi / 15),
-                scale_range=(0.1, 0.1, 0.1)
+                num_samples=4,
+                image_threshold=0.0
             ),
             transforms.RandFlipd(
                 keys=self.keys,
                 spatial_axis=[0, 1, 2],
                 prob=0.5
+            ),
+            transforms.RandRotate90d(
+                keys=self.keys,
+                prob=0.5
+            ),
+            transforms.RandGaussianNoised(
+                keys=self.keys,
+                prob=0.2
             ),
             transforms.ToTensord(
                 keys=self.keys
@@ -287,6 +275,12 @@ class TransformsMSD:
         self.valid_transforms = Compose([
             transforms.LoadImaged(keys=self.keys),
             transforms.EnsureChannelFirstd(keys=self.keys),
+            transforms.Orientationd(keys=self.keys, axcodes='RAS'),
+            transforms.Spacingd(
+                keys=self.keys,
+                pixdim=self._pixdim,
+                mode=('bilinear', 'nearest')
+            ),
             transforms.ScaleIntensityRanged(
                 keys=self.keys[0],
                 a_min=self._min,
@@ -295,64 +289,32 @@ class TransformsMSD:
                 b_max=1.0,
                 clip=True
             ),
-            transforms.CropForegroundd(
+            transforms.Resized(
                 keys=self.keys,
-                source_key=self.keys[0],
-                allow_smaller=True
-            ),
+                spatial_size=self.crop_size
+            )
+        ])
+
+        self.test_transforms = Compose([
+            transforms.LoadImaged(keys=self.keys),
+            transforms.EnsureChannelFirstd(keys=self.keys),
             transforms.Orientationd(keys=self.keys, axcodes='RAS'),
             transforms.Spacingd(
                 keys=self.keys,
                 pixdim=self._pixdim,
                 mode=('bilinear', 'nearest')
             ),
-            transforms.Resized(
-                keys=self.keys,
-                spatial_size=self.crop_size,
-                mode=('bilinear', 'nearest')
-            ),
-            transforms.ToTensord(
-                keys=self.keys
-            ),
-            transforms.EnsureTyped(
-                keys=self.keys,
-                data_type='tensor'
-            )
-        ])
-
-        self.test_transforms = Compose([
-            transforms.LoadImaged(keys=self.keys_test),
-            transforms.EnsureChannelFirstd(keys=self.keys_test),
             transforms.ScaleIntensityRanged(
-                keys=self.keys_test,
+                keys=self.keys[0],
                 a_min=self._min,
                 a_max=self._max,
                 b_min=0.0,
                 b_max=1.0,
                 clip=True
             ),
-            transforms.CropForegroundd(
-                keys=self.keys_test,
-                source_key=self.keys_test,
-                allow_smaller=True
-            ),
-            transforms.Orientationd(keys=self.keys_test, axcodes='RAS'),
-            transforms.Spacingd(
-                keys=self.keys_test,
-                pixdim=self._pixdim,
-                mode='bilinear'
-            ),
             transforms.Resized(
-                keys=self.keys_test,
-                spatial_size=self.crop_size,
-                mode='bilinear'
-            ),
-            transforms.ToTensord(
-                keys=self.keys_test
-            ),
-            transforms.EnsureTyped(
-                keys=self.keys_test,
-                data_type='tensor'
+                keys=self.keys,
+                spatial_size=self.crop_size
             )
         ])
 

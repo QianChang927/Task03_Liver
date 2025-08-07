@@ -39,7 +39,11 @@ class VNet3D(nn.Module):
         self.in_conv = ResidualBlock(MultiConv(self.in_channels, self.n_channels[0], self.layer_nums[0]))
         self.encoder = self.__build_layer('encoder')
         self.decoder = self.__build_layer('decoder')
-        self.out_conv = nn.Sequential(nn.Conv3d(self.n_channels[1], self.out_channels, kernel_size=1), nn.PReLU())
+        self.out_conv = nn.Sequential(
+            nn.Conv3d(self.n_channels[1], self.out_channels, kernel_size=5, padding=2),
+            nn.PReLU(),
+            nn.Conv3d(self.out_channels, self.out_channels, kernel_size=1)
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -85,7 +89,7 @@ class VNet3D(nn.Module):
             # 以n_channels = reversed([16, 32, 64, 128, 256, 256])举例
             # in:   [256,   256,    128,    64]
             # out:  [128,   64,     32,     16]
-            n_channels = list(reversed(self.n_channels + [self.n_channels[-1]]))
+            n_channels = list(reversed(list(self.n_channels) + [self.n_channels[-1]]))
             layer_nums = list(reversed(self.layer_nums[:-1]))
             info_zip = zip(n_channels[:len(layer_nums)], n_channels[-len(layer_nums):], layer_nums)
 
@@ -178,7 +182,9 @@ class ResidualBlock(nn.Module):
         self.activate = nn.PReLU()
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.activate(x + self.net(x))
+        x = torch.add(x, self.net(x))
+        x = self.activate(x)
+        return x
 
 
 class Encoder(nn.Module):
@@ -260,7 +266,7 @@ class Decoder(nn.Module):
         """
         x = self.decoder(x)
         x = torch.cat([encoder, x], dim=1 if len(x.shape) == 5 else 0)
-        x += self.conv(x)
+        x = torch.add(x, self.conv(x))
         return self.activate(x)
 
 
