@@ -63,8 +63,9 @@ if __name__ == '__main__':
         raise ValueError('args.model should be in ["UNet3D", "UNetMONAI"]')
 
     loss_fn = DiceLoss(
+        include_background=False,
         to_onehot_y=True,
-        sigmoid=True
+        softmax=True
     )
 
     if args.optimizer == 'Adam':
