@@ -1,0 +1,48 @@
+{
+    "system": "linux",
+    "device": "cuda",
+    "root_dir": "../../Dataset/Task03_Liver",
+    "save_dir": "./checkpoint",
+    "remains": null,
+    "val_scale": 0.1,
+    "num_workers_cache": 4,
+    "num_workers_loader": 4,
+    "crop_size": [
+        192,
+        192,
+        64
+    ],
+    "samp_size": [
+        192,
+        192,
+        64
+    ],
+    "model": "UNetMONAI",
+    "n_channels": [
+        16,
+        32,
+        64,
+        128,
+        256
+    ],
+    "norm_layer": "InstanceNorm",
+    "optimizer": "Adam",
+    "lr": 0.001,
+    "epochs": 1000,
+    "batch": 2,
+    "batch_other": 1,
+    "shuffle": false,
+    "seed": 0,
+    "roi_size": [
+        192,
+        192,
+        64
+    ],
+    "sw_batch": 2,
+    "overlap": 0.25,
+    "transforms-obj": "A5049E33",
+    "model-obj": "F0761611",
+    "loss_fn-obj": "3082A41B",
+    "optimizer-obj": "F5376C81",
+    "scheduler-obj": "1C8D2F81"
+}

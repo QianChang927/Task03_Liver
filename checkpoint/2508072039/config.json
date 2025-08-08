@@ -40,9 +40,9 @@
     ],
     "sw_batch": 2,
     "overlap": 0.25,
-    "transforms-obj": "A5049E33",
-    "model-obj": "F0761611",
-    "loss_fn-obj": "9C521FC9",
-    "optimizer-obj": "F5376C81",
-    "scheduler-obj": "1C8D2F81"
+    "transforms_obj": "A5049E33",
+    "model_obj": "F0761611",
+    "loss_fn_obj": "9C521FC9",
+    "optimizer_obj": "F5376C81",
+    "scheduler_obj": "1C8D2F81"
 }

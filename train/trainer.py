@@ -14,12 +14,13 @@ from argparse import Namespace
 from monai.data import DataLoader
 from .early_stopping import EarlyStopping
 
-class _Config:
+class CONFIG:
     """
     用于保存常量的配置类
     """
     ROI_SIZE: tuple[int, int, int] = (64, 64, 64)
     SW_BATCH_SIZE: int = 2
+    OUT_CHANNELS: int = 2
 
 class Trainer:
     def __init__(
@@ -63,8 +64,9 @@ class Trainer:
             self.device = device
 
         if args is not None:
-            _Config.ROI_SIZE = args.roi_size
-            _Config.SW_BATCH_SIZE = args.sw_batch
+            CONFIG.ROI_SIZE = args.roi_size
+            CONFIG.SW_BATCH_SIZE = args.sw_batch
+            CONFIG.OUT_CHANNELS = args.out_channels
 
         self.model = model.to(self.device)
         self.loss_fn = loss_fn.to(self.device)
@@ -219,15 +221,15 @@ class TrainerMethods:
         )
         post_pred = transforms.Compose([
             transforms.Activations(softmax=True),
-            transforms.AsDiscrete(argmax=True, to_onehot=model.out_channels)
+            transforms.AsDiscrete(argmax=True, to_onehot=CONFIG.OUT_CHANNELS)
         ])
         post_label = transforms.Compose([
-            transforms.AsDiscrete(to_onehot=model.out_channels)
+            transforms.AsDiscrete(to_onehot=CONFIG.OUT_CHANNELS)
         ])
 
         for batch in data_loader:
             images, labels = batch_process(batch, device)
-            valid_outputs = sliding_window_inference(images, _Config.ROI_SIZE, _Config.SW_BATCH_SIZE, model)
+            valid_outputs = sliding_window_inference(images, CONFIG.ROI_SIZE, CONFIG.SW_BATCH_SIZE, model)
             valid_outputs = [post_pred(i) for i in decollate_batch(valid_outputs)]
             valid_labels = [post_label(i) for i in decollate_batch(labels)]
             dice_metric(y_pred=valid_outputs, y=valid_labels)

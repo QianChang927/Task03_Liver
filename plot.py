@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from datetime import datetime
 
 # 类型注解所用库
-from typing import Callable, Any, Sequence
+from typing import Callable, Sequence, Mapping, Any
 
 OMIT_DICT = {
     'BatchNorm': 'BN',
@@ -24,6 +24,7 @@ class Plot:
         self,
         root_dir: str,
         process_seq: Sequence[dict] | dict=None,
+        sign_filter: Mapping[str, Sequence[str]] =None,
         plot_col: int = 3,
         file_ext: str = '.pt',
         file_seg: str = '_',
@@ -33,6 +34,7 @@ class Plot:
         绘制类构造函数
         :param root_dir: log根目录位置
         :param process_seq: log根目录预处理序列，内部元素形如{'func': Callable, 'args': Sequence}
+        :param sign_filter: log图例标注过滤序列，{'mode': 'omit/select', 'args': Sequence'}
         :param plot_col: 子图每列张数
         :param file_ext: 曲线文件后缀
         :param file_seg: 曲线文件前缀
@@ -41,6 +43,7 @@ class Plot:
         # 参数初始化
         self.root_dir = root_dir
         self.process_seq = process_seq
+        self.sign_filter = sign_filter
         self.plot_col = plot_col
         self.file_ext = file_ext if '*' in file_ext else f"*{file_ext}"
         self.file_seg = file_seg
@@ -76,6 +79,7 @@ class Plot:
                 plt.plot([x + 1 for x in range(len(value))], value, label=self.log_signs[log_dir])
                 plt.grid(True)
                 plt.legend()
+                print(key, max(value))
         plt.show()
 
     def __get_log_dirs(self) -> None:
@@ -123,6 +127,26 @@ class Plot:
                 target_str += f'{OMIT_DICT.get(key, key.upper())}_{OMIT_DICT.get(value, value)}_'
             return target_str[:-1]
 
+        def __skip(key: str) -> bool:
+            """
+            判断是否略过该键
+            :param key: 需要判断的键
+            :return: 是否略过
+            """
+            if not self.sign_filter: return False
+            skip_list = self.sign_filter.get('args', [])
+            skip_type = self.sign_filter.get('mode', None)
+            if not skip_type: return False
+            import fnmatch
+            match_flag = False
+            for skip_key in skip_list:
+                if fnmatch.fnmatch(key, skip_key):
+                    match_flag = True
+                    break
+            if skip_type == 'omit': return match_flag
+            elif skip_type == 'select': return not match_flag
+            else: raise ValueError(f'skip_type: {skip_type} must be `omit` or `select`')
+
         # 无日志情况排除
         if not len(self.log_dirs): return
 
@@ -136,6 +160,7 @@ class Plot:
             key_omit = ['root_dir', 'save_dir']
             for key, value in config.items():
                 if key in key_omit: continue
+                if __skip(key): continue
                 if not isinstance(value, str) and isinstance(value, Sequence):
                     value = '-'.join(map(str, value))
                 if key not in revert_dict: revert_dict[key] = {}
@@ -170,9 +195,9 @@ class Plot:
                 self.log_signs[key] += f'_FILE_{key}'
 
         # 防止为空
-        if len(self.log_signs) < 1:
-            for log_dir in self.log_dirs:
-                self.log_signs[log_dir] = f'FILE_{log_dir}'
+        for log_dir in self.log_dirs:
+            signs = self.log_signs.get(log_dir, {})
+            if not signs: self.log_signs[log_dir] = f'FILE_{log_dir}'
 
     def __load_log_info(self):
         """
@@ -332,9 +357,10 @@ if __name__ == '__main__':
     plot = Plot(
         root_dir='./checkpoint',
         process_seq=[
-            {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 5), datetime(2025, 8, 31)]},
-            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'model': 'UNet3D'}]}
+            {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 8, 1), datetime(2025, 8, 8, 3)]},
+            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'epochs': 1000}]}
         ],
+        sign_filter={'mode': 'omit', 'args': ['*obj']},
         plot_col=3,
         file_ext='.pt',
         file_seg='_',

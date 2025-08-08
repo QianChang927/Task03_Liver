@@ -1,5 +1,7 @@
 import os
 import torch
+import monai.networks.nets as monai_nets
+import monai.networks.layers as monai_layers
 
 from data import DataReaderMSD
 from model import UNet3D, VNet3D
@@ -9,8 +11,6 @@ from repeat import RepeatSetter
 
 from datetime import datetime
 from monai.losses import DiceLoss
-from monai.networks.nets import UNet
-from monai.networks.layers import Norm
 
 if __name__ == '__main__':
     parser = ArgParser()
@@ -32,35 +32,42 @@ if __name__ == '__main__':
 
     if args.model == 'UNet3D':
         model = UNet3D(
-            in_channels=1,
-            out_channels=2,
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
             n_channels=args.n_channels,
             norm_layer=args.norm_layer
         )
     elif args.model == 'VNet3D':
         model = VNet3D(
-            in_channels=1,
-            out_channels=2,
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
             n_channels=args.n_channels,
             layer_nums=[1, 2] + [3] * (len(args.n_channels) - 2)
         )
     elif args.model == 'UNetMONAI':
         norm_layer = {
-            'BatchNorm': Norm.BATCH,
-            'InstanceNorm': Norm.INSTANCE,
+            'BatchNorm': monai_layers.Norm.BATCH,
+            'InstanceNorm': monai_layers.Norm.INSTANCE,
             'None': None
         }
-        model = UNet(
+        model = monai_nets.UNet(
             spatial_dims=3,
-            in_channels=1,
-            out_channels=2,
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
             channels=args.n_channels,
             strides=[2] * len(args.n_channels),
             num_res_units=2,
             norm=norm_layer[args.norm_layer]
         )
+    elif args.model == 'VNetMONAI':
+        model = monai_nets.VNet(
+            spatial_dims=3,
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
+            act="prelu"
+        )
     else:
-        raise ValueError('args.model should be in ["UNet3D", "UNetMONAI"]')
+        raise ValueError()
 
     loss_fn = DiceLoss(
         include_background=False,

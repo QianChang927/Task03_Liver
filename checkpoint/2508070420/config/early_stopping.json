@@ -1,0 +1,9 @@
+{
+    "EarlyStopping": {
+        "patience": 60,
+        "min_delta": 0.001,
+        "stop_criterion": "valid",
+        "save_interval": 5,
+        "verbose": true
+    }
+}
