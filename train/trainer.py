@@ -215,10 +215,13 @@ class TrainerMethods:
         from monai.data import decollate_batch
         from monai import transforms
 
-        dice_metric = DiceMetric(
-            include_background=False,
-            reduction='mean'
-        )
+        import inspect
+        init_params = inspect.signature(DiceMetric).parameters
+        valid_keys = set(init_params.keys())
+        loss_fn_dict = loss_fn.__dict__
+        filtered_dict = {key: value for key, value in loss_fn_dict.items() if key in valid_keys}
+        dice_metric = DiceMetric(**filtered_dict)
+
         post_pred = transforms.Compose([
             transforms.Activations(softmax=True),
             transforms.AsDiscrete(argmax=True, to_onehot=CONFIG.OUT_CHANNELS)
