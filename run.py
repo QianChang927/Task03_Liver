@@ -42,7 +42,8 @@ if __name__ == '__main__':
             in_channels=args.in_channels,
             out_channels=args.out_channels,
             n_channels=args.n_channels,
-            layer_nums=[1, 2] + [3] * (len(args.n_channels) - 2)
+            layer_nums=[1, 2] + [3] * (len(args.n_channels) - 2),
+            norm_layer=args.norm_layer
         )
     elif args.model == 'UNetMONAI':
         norm_layer = {
@@ -70,7 +71,7 @@ if __name__ == '__main__':
         raise ValueError()
 
     loss_fn = DiceLoss(
-        include_background=False,
+        include_background=True,
         to_onehot_y=True,
         softmax=True
     )

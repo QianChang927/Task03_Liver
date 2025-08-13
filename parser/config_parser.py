@@ -75,7 +75,11 @@ class ConfigParser:
         :return:
         """
         self.config_args = {'system': sys.platform, 'device': self.device.type}
-        self.config_args.update(vars(self.args))
+        args_config = vars(self.args)
+        # 特殊模型处理
+        if args_config.get('model') in ['VNetMONAI']:
+            args_config['norm_layer'] = 'BatchNorm'
+        self.config_args.update(args_config)
 
     def __parse_transforms(self) -> None:
         """

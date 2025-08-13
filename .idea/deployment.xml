@@ -1,15 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="PublishConfigData" autoUpload="Always">
-    <serverData>
-      <paths name="jzuser@idcmnt1.truesight.com.cn:18702 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/jzuser/Work_dir/FYL/Task03_Liver" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-    </serverData>
     <option name="myAutoUpload" value="ALWAYS" />
   </component>
 </project>

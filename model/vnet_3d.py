@@ -3,7 +3,7 @@ from torch import nn
 
 # 类型注解所用库
 from torch import Tensor
-from torch.nn import Module, ModuleList
+from torch.nn import ModuleList
 from typing import Sequence, Literal
 
 class VNet3D(nn.Module):
@@ -15,7 +15,8 @@ class VNet3D(nn.Module):
         in_channels: int,
         out_channels: int,
         n_channels: Sequence[int]=None,
-        layer_nums: Sequence[int]=None
+        layer_nums: Sequence[int]=None,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
         3D V-Net类构造函数
@@ -23,6 +24,7 @@ class VNet3D(nn.Module):
         :param out_channels: 输出通道数
         :param n_channels: 中间层通道数
         :param layer_nums: 中间卷积层数
+        :param norm_layer: 归一化层类型
         :return:
         """
         super(VNet3D, self).__init__()
@@ -33,17 +35,14 @@ class VNet3D(nn.Module):
 
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.n_channels = n_channels
-        self.layer_nums = layer_nums
+        self.n_channels = list(n_channels)
+        self.layer_nums = list(layer_nums)
+        self.norm_layer = norm_layer
 
-        self.in_conv = ResidualBlock(MultiConv(self.in_channels, self.n_channels[0], self.layer_nums[0]))
-        self.encoder = self.__build_layer('encoder')
-        self.decoder = self.__build_layer('decoder')
-        self.out_conv = nn.Sequential(
-            nn.Conv3d(self.n_channels[1], self.out_channels, kernel_size=5, padding=2),
-            nn.PReLU(),
-            nn.Conv3d(self.out_channels, self.out_channels, kernel_size=1)
-        )
+        self.input_block = InputBlock(self.in_channels, self.n_channels[0], self.norm_layer)
+        self.encoder = self.__build_layers('encoder')
+        self.decoder = self.__build_layers('decoder')
+        self.output_block = OutputBlock(self.n_channels[0] * 2, self.out_channels, self.norm_layer)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -55,86 +54,81 @@ class VNet3D(nn.Module):
         features = []
 
         # 输入层
-        x = self.in_conv(x)
+        x = self.input_block(x)
         features.append(x)
 
-        # 编码器
+        # 编码过程
         for layer in self.encoder:
             x = layer(x)
             features.append(x)
 
-        # 瓶颈层处理：丢弃此层的特征避免错误残差计算
+        # 瓶颈层处理，丢弃此层的特征避免错误残差计算
         features.pop()
 
-        # 解码器
+        # 解码过程
         for layer in self.decoder:
             x = layer(x, features.pop())
 
         # 输出层
-        x = self.out_conv(x)
+        x = self.output_block(x)
 
         return x
 
-    def __build_layer(self, mode: Literal['encoder', 'decoder']) -> ModuleList:
+    def __build_layers(self, build_mode: Literal['encoder', 'decoder']) -> ModuleList:
         """
-        动态生成编码器与解码器
-        :return: 生成的编码器/解码器
+        构建编码器/解码器
+        :param build_mode: 构建模式
+        :return: 构建的编码器/解码器
         """
-        layers = nn.ModuleList()
-        if mode == 'encoder':
-            n_channels = self.n_channels
+        assert build_mode in ['encoder', 'decoder']
+        if build_mode == 'encoder':
             layer_nums = self.layer_nums[1:]
-            info_zip = zip(n_channels[:len(layer_nums)], n_channels[-len(layer_nums):], layer_nums)
+            in_channels = self.n_channels[:len(layer_nums)]
+            out_channels = self.n_channels[-len(layer_nums):]
         else:
-            # 以n_channels = reversed([16, 32, 64, 128, 256, 256])举例
-            # in:   [256,   256,    128,    64]
-            # out:  [128,   64,     32,     16]
-            n_channels = list(reversed(list(self.n_channels) + [self.n_channels[-1]]))
             layer_nums = list(reversed(self.layer_nums[:-1]))
-            info_zip = zip(n_channels[:len(layer_nums)], n_channels[-len(layer_nums):], layer_nums)
+            # n_channels:   [256,   256,    128,    64,     32,     16]
+            # in_channels:  [256,   256,    128,    64]
+            # out_channels: [128,   64,     32,     16]
+            n_channels = list(reversed(self.n_channels + [self.n_channels[-1]]))
+            in_channels = n_channels[:len(layer_nums)]
+            out_channels = n_channels[-len(layer_nums):]
 
-        for i, (in_channels, out_channels, layer_num) in enumerate(info_zip):
-            if mode == 'encoder':
-                layer = Encoder(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    layer_nums = layer_num
-                )
-            elif mode == 'decoder':
-                layer = Decoder(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    encoder_channels=n_channels[i + 2],
-                    layer_nums = layer_num
-                )
+        layers = nn.ModuleList()
+        for in_ch, out_ch, layer_num in zip(in_channels, out_channels, layer_nums):
+            if build_mode == 'encoder':
+                layers.append(DownSample(in_ch, out_ch, layer_num, self.norm_layer))
             else:
-                raise ValueError('mode should be either `encoder` or `decoder`')
-            layers.append(layer)
+                layers.append(UpSample(in_ch, out_ch, out_ch, layer_num, self.norm_layer))
         return layers
 
 
-class MultiConv(nn.Module):
+class ConvBlock(nn.Module):
     """
-    多层卷积级联类
+    卷积块
     """
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        layer_nums: int
+        layer_num: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
-        多层卷积级联类构造函数
+        卷积块构造函数
         :param in_channels: 输入通道数
         :param out_channels: 输出通道数
-        :param layer_nums: 级联卷积层数
+        :param layer_num: 卷积层数
+        :param norm_layer: 归一化层类型
         :return:
         """
-        super(MultiConv, self).__init__()
+        super(ConvBlock, self).__init__()
+        assert norm_layer in ['BatchNorm', 'InstanceNorm', 'None']
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.layer_nums = layer_nums
-        self.conv = self.__build_layers()
+        self.layer_num = layer_num
+        self.norm_layer = norm_layer
+        self.__build_layers()
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -142,132 +136,188 @@ class MultiConv(nn.Module):
         :param x: 输入张量
         :return: 输出张量
         """
-        for layer in self.conv:
-            x = layer(x)
+        for conv in self.conv_block:
+            x = conv(x)
         return x
 
-    def __build_layers(self) -> ModuleList:
+    def __build_layers(self) -> None:
         """
-        自动生成多层卷积层，当卷积层级联层数大于1时，通道变化为：in_channels -> out_channels -> ... -> out_channels
+        构造中间卷积层
         :return:
         """
-        layers = nn.ModuleList()
+        self.conv_block = nn.ModuleList()
         in_channels = self.in_channels
         out_channels = self.out_channels
-        for _ in range(self.layer_nums):
-            layers.append(nn.Sequential(
-                nn.Conv3d(in_channels, out_channels, kernel_size=5, stride=1, padding=2),
-                nn.PReLU()
-            ))
+        for i in range(self.layer_num):
+            conv_block = [nn.Conv3d(in_channels, out_channels, 5, 1, 2)]
+            if self.norm_layer == 'BatchNorm':
+                conv_block.append(nn.BatchNorm3d(out_channels))
+            elif self.norm_layer == 'InstanceNorm':
+                conv_block.append(nn.InstanceNorm3d(out_channels))
+            else: pass
+            if i + 1 < self.layer_num:
+                conv_block.append(nn.PReLU())
+            self.conv_block.append(nn.Sequential(*conv_block))
             in_channels = out_channels
-        # 复现原论文的Caffe实现，最后一个卷积层不加激活，激活由外部的残差块/编码器/解码器完成
-        layers[-1].pop(-1)
-        return layers
 
 
-class ResidualBlock(nn.Module):
+class InputBlock(nn.Module):
     """
-    残差块，将输入和通过网络的输出相加，需保证输入与输出通道数相同或输入通道数为1
-    """
-    def __init__(
-        self,
-        net: Module
-    ) -> None:
-        """
-        残差块构造函数
-        :param net: 用于计算的中间网络层
-        """
-        super(ResidualBlock, self).__init__()
-        self.net = net
-        self.activate = nn.PReLU()
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = torch.add(x, self.net(x))
-        x = self.activate(x)
-        return x
-
-
-class Encoder(nn.Module):
-    """
-    编码器类
+    传入块
     """
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        layer_nums: int
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
     ) -> None:
         """
-        编码器类构造函数
+        传入块构造函数
         :param in_channels: 输入通道数
         :param out_channels: 输出通道数
-        :param layer_nums: 级联卷积层数
         :return:
         """
-        super(Encoder, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.layer_nums = layer_nums
-        self.encoder = nn.Sequential(
-            nn.Conv3d(self.in_channels, self.out_channels, kernel_size=2, stride=2),
-            nn.PReLU()
-        )
-        self.conv = ResidualBlock(MultiConv(self.out_channels, self.out_channels, self.layer_nums))
+        super(InputBlock, self).__init__()
+        self.conv = ConvBlock(in_channels, out_channels, 1, norm_layer)
+        self.act = nn.PReLU()
 
     def forward(self, x: Tensor) -> Tensor:
-        """
-        前向传播
-        :param x: 输入张量
-        :return: 输出张量
-        """
-        x = self.encoder(x)
-        x = self.conv(x)
-        return x
-
-
-class Decoder(nn.Module):
-    """
-    解码器类，注意该层真实输出通道数为out_channels + encoder_channels
-    """
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        encoder_channels: int,
-        layer_nums: int
-    ) -> None:
-        """
-        解码器类构造函数
-        :param in_channels: 输入通道数
-        :param out_channels: 上采样部分的输出通道数
-        :param encoder_channels: 传递张量编码器的通道数
-        :param layer_nums: 级联卷积层数
-        :return:
-        """
-        super(Decoder, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.encoder_channels = encoder_channels
-        self.layer_nums = layer_nums
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose3d(self.in_channels, self.out_channels, kernel_size=2, stride=2),
-            nn.PReLU()
-        )
-        true_out_channels = self.out_channels + self.encoder_channels
-        self.conv = MultiConv(true_out_channels, true_out_channels, self.layer_nums)
-        self.activate = nn.PReLU()
-
-    def forward(self, x: Tensor, encoder: Tensor) -> Tensor:
         """
         前向传播
         :param x: 传入张量
-        :param encoder: 从编码器传来的张量
         :return: 传出张量
         """
-        x = self.decoder(x)
-        x = torch.cat([encoder, x], dim=1 if len(x.shape) == 5 else 0)
+        x_out = self.conv(x)
+        x = torch.add(x, x_out)
+        x = self.act(x)
+        return x
+
+
+class DownSample(nn.Module):
+    """
+    编码器
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        layer_num: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+    ) -> None:
+        """
+        编码器构造函数
+        :param in_channels: 输入通道数
+        :param out_channels: 输出通道数
+        :param layer_num: 卷积层数
+        :param norm_layer: 归一化层类型
+        :return:
+        """
+        super(DownSample, self).__init__()
+        assert norm_layer in ['BatchNorm', 'InstanceNorm', 'None']
+        self.down = nn.Sequential(nn.Conv3d(in_channels, out_channels, 2, 2, 0))
+        if norm_layer == 'BatchNorm':
+            self.down.append(nn.BatchNorm3d(out_channels))
+        elif norm_layer == 'InstanceNorm':
+            self.down.append(nn.InstanceNorm3d(out_channels))
+        else: pass
+        self.down.append(nn.PReLU())
+        self.conv = ConvBlock(out_channels, out_channels, layer_num, norm_layer)
+        self.act = nn.PReLU()
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        前向传播
+        :param x: 输入张量
+        :return: 输出张量
+        """
+        x = self.down(x)
         x = torch.add(x, self.conv(x))
-        return self.activate(x)
+        x = self.act(x)
+        return x
+
+
+class UpSample(nn.Module):
+    """
+    解码器，注意输出张量通道数为out_channels + skip_channels
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        skip_channels: int,
+        layer_num: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+    ) -> None:
+        """
+        解码器构造函数
+        :param in_channels: 输入通道数
+        :param out_channels: 输出通道数
+        :param skip_channels: 跳跃连接通道数
+        :param layer_num: 卷积层数
+        :param norm_layer: 归一化层类型
+        :return:
+        """
+        super(UpSample, self).__init__()
+        assert norm_layer in ['BatchNorm', 'InstanceNorm', 'None']
+        self.up = nn.Sequential(nn.ConvTranspose3d(in_channels, out_channels, 2, 2, 0))
+        if norm_layer == 'BatchNorm':
+            self.up.append(nn.BatchNorm3d(out_channels))
+        elif norm_layer == 'InstanceNorm':
+            self.up.append(nn.InstanceNorm3d(out_channels))
+        else: pass
+        self.up.append(nn.PReLU())
+
+        true_out_channels = out_channels + skip_channels
+        self.conv = ConvBlock(true_out_channels, true_out_channels, layer_num, norm_layer)
+        self.act = nn.PReLU()
+
+    def forward(self, x: Tensor, x_skip: Tensor) -> Tensor:
+        """
+        前向传播
+        :param x: 传入张量
+        :param x_skip: 跳跃连接传入张量
+        :return: 传出张量
+        """
+        x = self.up(x)
+        x_cat = torch.cat((x, x_skip), dim=1)
+        x = self.conv(x_cat)
+        x = torch.add(x, x_cat)
+        x = self.act(x)
+        return x
+
+
+class OutputBlock(nn.Module):
+    """
+    输出块
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']
+    ) -> None:
+        """
+        输出块构造函数
+        :param in_channels: 输入通道数
+        :param out_channels: 输出通道数
+        :param norm_layer: 归一化层类型
+        :return:
+        """
+        super(OutputBlock, self).__init__()
+        self.conv_1 = ConvBlock(in_channels, out_channels, 1, norm_layer)
+        self.act = nn.PReLU()
+        self.conv_2 = ConvBlock(out_channels, out_channels, 1, norm_layer)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        前向传播
+        :param x: 传入张量
+        :return: 传出张量
+        """
+        x = self.conv_1(x)
+        x = self.act(x)
+        x = self.conv_2(x)
+        return x
 
 
 if __name__ == '__main__':
@@ -275,8 +325,9 @@ if __name__ == '__main__':
     vnet_3d = VNet3D(
         in_channels=1,
         out_channels=2,
-        n_channels=[16, 32, 64, 128, 256],
-        layer_nums=[1, 2, 3, 3, 3]
+        n_channels=None,
+        layer_nums=None,
+        norm_layer='InstanceNorm'
     ).to(device)
     print(vnet_3d)
 

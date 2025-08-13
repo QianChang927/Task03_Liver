@@ -208,8 +208,8 @@ class TransformsMSD:
         self.train_transforms = None
         self.valid_transforms = None
         self.test_transforms = None
-        self._min = -57
-        self._max = 164
+        self._min = -100
+        self._max = 200
         self._pixdim = (0.8, 0.8, 1.5)
         self.__create_transforms()
 

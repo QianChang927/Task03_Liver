@@ -357,8 +357,8 @@ if __name__ == '__main__':
     plot = Plot(
         root_dir='./checkpoint',
         process_seq=[
-            {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 8, 1), datetime(2025, 8, 8, 3)]},
-            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'epochs': 1000}]}
+            # {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 8, 1), datetime(2025, 8, 8, 3)]},
+            # {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'epochs': 1000}]}
         ],
         sign_filter={'mode': 'omit', 'args': ['*obj']},
         plot_col=3,
