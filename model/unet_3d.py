@@ -3,7 +3,7 @@ from torch import nn
 
 # 类型注解所用库
 from torch import Tensor
-from torch.nn import ModuleList
+from torch.nn import Module, ModuleList
 from typing import Literal
 
 class UNet3D(nn.Module):
@@ -15,29 +15,34 @@ class UNet3D(nn.Module):
         in_channels: int,
         out_channels: int,
         n_channels: list=None,
-        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        norm_type: Module=None,
+        norm_args: dict=None
     ) -> None:
         """
         3D U-Net类构造函数
         :param in_channels: 输入通道数
         :param out_channels: 输出通道数
         :param n_channels: 中间层通道数
-        :param norm_layer: 归一化层类型
+        :param norm_type: 归一化层类
+        :param norm_args: 归一化层需要特殊处理的参数
         :return:
         """
         super(UNet3D, self).__init__()
+        if norm_type is None: norm_type = nn.Identity
+        if norm_args is None: norm_args = {}
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.norm_layer = norm_layer
+        self.norm_type = norm_type
+        self.norm_args = norm_args
 
         if n_channels is None: n_channels = [64, 128, 256, 512]
         if len(n_channels) <= 1: raise ValueError('n_channels should have at least 2 elements')
         self.n_channels = n_channels
 
-        self.in_conv = DoubleConv(self.in_channels, self.n_channels[0], norm_layer=self.norm_layer)
+        self.in_block = DoubleConv(in_channels, n_channels[0], norm_type=norm_type, norm_args=norm_args)
         self.encoder = self.__build_layers(mode='encoder')
         self.decoder = self.__build_layers(mode='decoder')
-        self.out_conv = OutConv(self.n_channels[0], self.out_channels)
+        self.out_block = OutConv(n_channels[0], out_channels)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -49,7 +54,7 @@ class UNet3D(nn.Module):
         features = []
 
         # 输入层
-        x = self.in_conv(x)
+        x = self.in_block(x)
         features.append(x)
 
         # 编码过程
@@ -65,7 +70,7 @@ class UNet3D(nn.Module):
             x = layer(x, features.pop())
 
         # 输出层
-        x = self.out_conv(x)
+        x = self.out_block(x)
 
         return x
 
@@ -82,14 +87,16 @@ class UNet3D(nn.Module):
                 layer = DownSample(
                     in_channels=in_channels,
                     out_channels=out_channels,
-                    norm_layer=self.norm_layer
+                    norm_type=self.norm_type,
+                    norm_args=self.norm_args
                 )
             elif mode == 'decoder':
                 layer = UpSample(
                     in_channels=in_channels,
                     out_channels=out_channels,
-                    encoder_channels=out_channels,
-                    norm_layer=self.norm_layer
+                    skip_channels=out_channels,
+                    norm_type=self.norm_type,
+                    norm_args=self.norm_args
                 )
             else:
                 raise ValueError('mode should be either `encoder` or `decoder`')
@@ -105,38 +112,33 @@ class DoubleConv(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        norm_type: Module=None,
+        norm_args: dict=None
     ) -> None:
         """
         双层卷积类构造函数
         :param in_channels: 输入通道数
         :param out_channels: 输出通道数
-        :param norm_layer: 归一化层类型
+        :param norm_type: 归一化层类
+        :param norm_args: 归一化层需要特殊处理的参数
         :return:
         """
         super(DoubleConv, self).__init__()
+        if norm_type is None: norm_type = nn.Identity
+        if norm_args is None: norm_args = {}
         mid_channels = out_channels // 2
+        bias = False if norm_type != nn.Identity else True
+
         self.conv1 = nn.Sequential(
-            nn.Conv3d(in_channels, mid_channels, kernel_size=3, padding=1),
+            nn.Conv3d(in_channels, mid_channels, kernel_size=3, padding=1, bias=bias),
+            norm_type(num_features=mid_channels, **norm_args),
             nn.ReLU(inplace=True)
         )
         self.conv2 = nn.Sequential(
-            nn.Conv3d(mid_channels, out_channels, kernel_size=3, padding=1),
+            nn.Conv3d(mid_channels, out_channels, kernel_size=3, padding=1, bias=bias),
+            norm_type(num_features=out_channels, **norm_args),
             nn.ReLU(inplace=True)
         )
-
-        if norm_layer == 'BatchNorm':
-            norm_class = nn.BatchNorm3d
-        elif norm_layer == 'InstanceNorm':
-            norm_class = nn.InstanceNorm3d
-        elif norm_layer == 'None':
-            norm_class = None
-        else:
-            raise NotImplementedError('norm_layer should be in ["BatchNorm", "InstanceNorm", "None"]')
-
-        if norm_layer != 'None':
-            self.conv1.insert(index=1, module=norm_class(mid_channels))
-            self.conv2.insert(index=1, module=norm_class(out_channels))
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -157,19 +159,24 @@ class DownSample(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        norm_type: Module=None,
+        norm_args: dict=None
     ) -> None:
         """
         编码器类构造函数
         :param in_channels: 输入通道数
         :param out_channels: 输出通道数
-        :param norm_layer: 归一化层类型
+        :param norm_type: 归一化层类
+        :param norm_args: 归一化层需要特殊处理的参数
         :return:
         """
         super(DownSample, self).__init__()
+        if norm_type is None: norm_type = nn.Identity
+        if norm_args is None: norm_args = {}
+
         self.down = nn.Sequential(
             nn.MaxPool3d(kernel_size=2, stride=2),
-            DoubleConv(in_channels, out_channels, norm_layer=norm_layer)
+            DoubleConv(in_channels, out_channels, norm_type=norm_type, norm_args=norm_args)
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -190,20 +197,25 @@ class UpSample(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        encoder_channels: int,
-        norm_layer: Literal['BatchNorm', 'InstanceNorm', 'None']='BatchNorm'
+        skip_channels: int,
+        norm_type: Module=None,
+        norm_args: dict=None
     ) -> None:
         """
         编码器类构造函数
         :param in_channels: 输入通道数
         :param out_channels: 输出通道数
-        :param encoder_channels: 传递张量编码器的通道数
-        :param norm_layer: 归一化层类型
+        :param skip_channels: 传递张量编码器的通道数
+        :param norm_type: 归一化层类
+        :param norm_args: 归一化层需要特殊处理的参数
         :return:
         """
         super(UpSample, self).__init__()
+        if norm_type is None: norm_type = nn.Identity
+        if norm_args is None: norm_args = {}
+
         self.up = nn.ConvTranspose3d(in_channels, in_channels, kernel_size=2, stride=2)
-        self.conv = DoubleConv(in_channels + encoder_channels, out_channels, norm_layer=norm_layer)
+        self.conv = DoubleConv(in_channels + skip_channels, out_channels, norm_type=norm_type, norm_args=norm_args)
 
     def forward(self, x: Tensor, encoder: Tensor) -> Tensor:
         """
@@ -252,7 +264,8 @@ if __name__ == '__main__':
         in_channels=1,
         out_channels=2,
         n_channels=[64, 128, 256, 512, 1024],
-        norm_layer='None'
+        norm_type=nn.InstanceNorm3d,
+        norm_args={ 'affine': True }
     ).to(device)
     print(model)
 

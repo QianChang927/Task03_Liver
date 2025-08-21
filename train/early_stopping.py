@@ -2,8 +2,16 @@ import os
 import torch
 
 # 类型注解所用库
+from argparse import Namespace
 from torch.nn import Module
-from typing import Literal, Callable
+from typing import Literal, Callable, Sequence
+
+class CONFIG:
+    """
+    用于保存常量的配置类
+    """
+    JUDGE_CHANNEL: int = -1
+
 
 class EarlyStopping:
     """
@@ -19,7 +27,9 @@ class EarlyStopping:
         save_interval: int=10,
         verbose: bool=False,
         train_compare: Callable[[dict | float, dict | float], float]=None,
-        valid_compare: Callable[[dict | float, dict | float], float]=None
+        valid_compare: Callable[[dict | float, dict | float], float]=None,
+        judge_channel: int=-1,
+        args: Namespace=None
     ) -> None:
         """
         早停机制类构造函数
@@ -32,8 +42,15 @@ class EarlyStopping:
         :param verbose: 是否输出额外信息
         :param train_compare: 训练过程比较函数，输出优越差
         :param valid_compare: 验证过程比较函数，输出优越差
+        :param judge_channel: 训练/验证过程损失/dice通道选择
+        :param args: 命令行参数解析器
         :return:
         """
+        if args is not None:
+            CONFIG.JUDGE_CHANNEL = args.judge_channel
+        else:
+            CONFIG.JUDGE_CHANNEL = judge_channel
+
         self.model = model
         self.save_dir = save_dir
         self.patience = patience
@@ -73,7 +90,9 @@ class EarlyStopping:
             i = 0
             for key, value in criteria.items():
                 i += 1
-                cache += f"{f'{judge_mode} {key}: {value:.5f}': <30}"
+                if isinstance(value, Sequence): value = [round(v, 5) for v in value]
+                else: value = round(value, 5)
+                cache += f"{f'{judge_mode} {key}: {value}': <30}"
                 if i % concat == 0:
                     print(cache)
             if i % concat:
@@ -183,7 +202,7 @@ class EarlyStoppingMethods:
         return float(cri_1 - cri_2)
 
     @staticmethod
-    def valid_compare(criteria_1: dict | float, criteria_2: dict | float) -> float:
+    def valid_compare(criteria_1: dict | Sequence | float, criteria_2: dict | Sequence | float) -> float:
         """
         验证标准优越度计算：返回criteria_1与criteria_2的优越差值
         :param criteria_1: 源字典|浮点数
@@ -191,5 +210,7 @@ class EarlyStoppingMethods:
         :return: >0 criteria_2更优越; <0 criteria_1更优越; =0 二者无区别
         """
         cri_1 = criteria_1.get('dice', 0.) if isinstance(criteria_1, dict) else criteria_1
+        if isinstance(cri_1, Sequence): cri_1 = cri_1[CONFIG.JUDGE_CHANNEL]
         cri_2 = criteria_2.get('dice', 0.) if isinstance(criteria_2, dict) else criteria_2
+        if isinstance(cri_2, Sequence): cri_2 = cri_2[CONFIG.JUDGE_CHANNEL]
         return float(cri_2 - cri_1)

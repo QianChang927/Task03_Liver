@@ -9,6 +9,7 @@ from train import Trainer, EarlyStopping
 from parser import ArgParser, ConfigParser
 from repeat import RepeatSetter
 
+from torch import nn
 from datetime import datetime
 from monai.losses import DiceLoss
 
@@ -30,12 +31,21 @@ if __name__ == '__main__':
     train_loader = data_reader.get_dataloader('train')
     valid_loader = data_reader.get_dataloader('valid')
 
+    if args.norm_layer == 'BatchNorm':
+        norm_type = nn.BatchNorm3d
+    elif args.norm_layer == 'InstanceNorm':
+        norm_type = nn.InstanceNorm3d
+    else:
+        norm_type = None
+    norm_args = {'affine': True}
+
     if args.model == 'UNet3D':
         model = UNet3D(
             in_channels=args.in_channels,
             out_channels=args.out_channels,
             n_channels=args.n_channels,
-            norm_layer=args.norm_layer
+            norm_type=norm_type,
+            norm_args=norm_args
         )
     elif args.model == 'VNet3D':
         model = VNet3D(
@@ -43,7 +53,8 @@ if __name__ == '__main__':
             out_channels=args.out_channels,
             n_channels=args.n_channels,
             layer_nums=[1, 2] + [3] * (len(args.n_channels) - 2),
-            norm_layer=args.norm_layer
+            norm_type=norm_type,
+            norm_args=norm_args
         )
     elif args.model == 'UNetMONAI':
         norm_layer = {
@@ -73,7 +84,8 @@ if __name__ == '__main__':
     loss_fn = DiceLoss(
         include_background=True,
         to_onehot_y=True,
-        softmax=True
+        softmax=True,
+        reduction="none"
     )
 
     if args.optimizer == 'Adam':
@@ -93,7 +105,7 @@ if __name__ == '__main__':
         optimizer=optimizer,
         mode='max',
         factor=0.1,
-        patience=5,
+        patience=args.epochs // 50,
         threshold=1e-05,
         threshold_mode='rel',
         cooldown=0,

@@ -3,6 +3,7 @@ import math
 import json
 import glob
 import torch
+import numpy as np
 
 from collections.abc import Iterable
 from matplotlib import pyplot as plt
@@ -25,6 +26,7 @@ class Plot:
         root_dir: str,
         process_seq: Sequence[dict] | dict=None,
         sign_filter: Mapping[str, Sequence[str]] =None,
+        channel: int = 1,
         plot_col: int = 3,
         file_ext: str = '.pt',
         file_seg: str = '_',
@@ -35,6 +37,7 @@ class Plot:
         :param root_dir: log根目录位置
         :param process_seq: log根目录预处理序列，内部元素形如{'func': Callable, 'args': Sequence}
         :param sign_filter: log图例标注过滤序列，{'mode': 'omit/select', 'args': Sequence'}
+        :param channel: 评判标准含多维数据时取第几个维度
         :param plot_col: 子图每列张数
         :param file_ext: 曲线文件后缀
         :param file_seg: 曲线文件前缀
@@ -44,6 +47,7 @@ class Plot:
         self.root_dir = root_dir
         self.process_seq = process_seq
         self.sign_filter = sign_filter
+        self.channel = channel
         self.plot_col = plot_col
         self.file_ext = file_ext if '*' in file_ext else f"*{file_ext}"
         self.file_seg = file_seg
@@ -76,10 +80,18 @@ class Plot:
                 plt.title(key)
                 plt.xlabel('epoch')
 
+                np_value = np.array(value)
+                np_shape = np_value.shape
+                if len(np_shape) > 1:
+                    self.channel = min(self.channel, np_shape[-1])
+                    value = np_value[:, self.channel].tolist()
+
                 plt.plot([x + 1 for x in range(len(value))], value, label=self.log_signs[log_dir])
                 plt.grid(True)
                 plt.legend()
-                print(key, max(value))
+
+                if 'dice' in key: print(f'{self.log_signs[log_dir]}-best {key}: {max(value)}')
+                elif 'loss' in key: print(f'{self.log_signs[log_dir]}-best {key}: {min(value)}')
         plt.show()
 
     def __get_log_dirs(self) -> None:
@@ -357,10 +369,11 @@ if __name__ == '__main__':
     plot = Plot(
         root_dir='./checkpoint',
         process_seq=[
-            # {'func': ModifyMethods.filter_ctime, 'args': ['select', datetime(2025, 8, 8, 1), datetime(2025, 8, 8, 3)]},
-            # {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'epochs': 1000}]}
+            # { 'func': ModifyMethods.filter_kwargs, 'args': ['select', { 'model': 'UNet3D' }] }
+            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'model': 'UNet3D'}]}
         ],
         sign_filter={'mode': 'omit', 'args': ['*obj']},
+        channel=1,
         plot_col=3,
         file_ext='.pt',
         file_seg='_',

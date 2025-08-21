@@ -21,6 +21,8 @@ class CONFIG:
     ROI_SIZE: tuple[int, int, int] = (64, 64, 64)
     SW_BATCH_SIZE: int = 2
     OUT_CHANNELS: int = 2
+    JUDGE_CHANNEL: int = -1
+
 
 class Trainer:
     def __init__(
@@ -38,6 +40,7 @@ class Trainer:
         valid_process: Callable[[Module, DataLoader, Callable[[dict, device], tuple[Tensor, Tensor]], Module, Optimizer, LRScheduler, device], dict|None]=None,
         batch_process: Callable[[dict, device], tuple[Tensor, Tensor]]=None,
         valid_interval: int=5,
+        judge_channel: int=-1,
         args: Namespace=None
     ) -> None:
         """
@@ -55,6 +58,7 @@ class Trainer:
         :param valid_process: 验证过程函数：valid_process(model, data_loader, batch_process, loss_fn, optimizer, scheduler, device) -> dict|None
         :param batch_process: batch处理函数：batch_process(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]
         :param valid_interval: 验证间隔
+        :param judge_channel: 训练/验证过程损失/dice通道选择
         :param args: 命令行参数解析器
         :return:
         """
@@ -67,6 +71,9 @@ class Trainer:
             CONFIG.ROI_SIZE = args.roi_size
             CONFIG.SW_BATCH_SIZE = args.sw_batch
             CONFIG.OUT_CHANNELS = args.out_channels
+            CONFIG.JUDGE_CHANNEL = args.judge_channel
+        else:
+            CONFIG.JUDGE_CHANNEL = judge_channel
 
         self.model = model.to(self.device)
         self.loss_fn = loss_fn.to(self.device)
@@ -162,7 +169,9 @@ class TrainerMethods:
             loss_fn_dict = loss_fn.__dict__
             filtered_dict = { key: value for key, value in loss_fn_dict.items() if key in valid_keys }
             dice_loss = DiceLoss(**filtered_dict)
-            dice = 1 - dice_loss(y_pred, y).item()
+            loss = dice_loss(y_pred, y)
+            if len(loss.shape) > 1: loss = loss[:, CONFIG.JUDGE_CHANNEL].mean()
+            dice = 1 - loss.item()
             return dice
 
         for batch in data_loader:
@@ -173,6 +182,7 @@ class TrainerMethods:
             def closure():
                 outputs = model(images)
                 loss = loss_fn(outputs, labels)
+                if len(loss.shape) > 1: loss = loss[:, CONFIG.JUDGE_CHANNEL].mean()
                 nonlocal _loss, _outputs
                 _loss, _outputs = loss.item(), outputs
                 loss.backward()
@@ -224,7 +234,9 @@ class TrainerMethods:
 
         post_pred = transforms.Compose([
             transforms.Activations(softmax=True),
-            transforms.AsDiscrete(argmax=True, to_onehot=CONFIG.OUT_CHANNELS)
+            transforms.AsDiscrete(argmax=True),
+            transforms.KeepLargestConnectedComponent(applied_labels=[1]),
+            transforms.AsDiscrete(to_onehot=CONFIG.OUT_CHANNELS)
         ])
         post_label = transforms.Compose([
             transforms.AsDiscrete(to_onehot=CONFIG.OUT_CHANNELS)
@@ -237,11 +249,17 @@ class TrainerMethods:
             valid_labels = [post_label(i) for i in decollate_batch(labels)]
             dice_metric(y_pred=valid_outputs, y=valid_labels)
 
-        dice = dice_metric.aggregate().item()
+        dice = dice_metric.aggregate().mean(dim=0)
         dice_metric.reset()
 
         if scheduler is not None:
-            scheduler.step(dice)
+            if len(dice) > 1:
+                dice_judge = dice[CONFIG.JUDGE_CHANNEL].item()
+                dice = dice.tolist()
+            else:
+                dice_judge = dice.item()
+                dice = dice.item()
+            scheduler.step(dice_judge)
 
         return {'dice': dice}
 
