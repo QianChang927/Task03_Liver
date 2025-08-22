@@ -4,7 +4,7 @@ import monai.networks.nets as monai_nets
 import monai.networks.layers as monai_layers
 
 from data import DataReaderMSD
-from model import UNet3D, VNet3D
+from model import UNet3D, VNet3D, ResNet
 from train import Trainer, EarlyStopping
 from parser import ArgParser, ConfigParser
 from repeat import RepeatSetter
@@ -53,6 +53,20 @@ if __name__ == '__main__':
             out_channels=args.out_channels,
             n_channels=args.n_channels,
             layer_nums=[1, 2] + [3] * (len(args.n_channels) - 2),
+            norm_type=norm_type,
+            norm_args=norm_args
+        )
+    elif args.model == 'ResNet34':
+        model = ResNet.resnet34(
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
+            norm_type=norm_type,
+            norm_args=norm_args
+        )
+    elif args.model == 'ResNet50':
+        model = ResNet.resnet50(
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
             norm_type=norm_type,
             norm_args=norm_args
         )

@@ -26,11 +26,11 @@ class Plot:
         root_dir: str,
         process_seq: Sequence[dict] | dict=None,
         sign_filter: Mapping[str, Sequence[str]] =None,
-        channel: int = 1,
-        plot_col: int = 3,
-        file_ext: str = '.pt',
-        file_seg: str = '_',
-        fig_size: tuple[int, int] = (20, 6)
+        channel: int | Sequence[int]=1,
+        plot_col: int=3,
+        file_ext: str='.pt',
+        file_seg: str='_',
+        fig_size: tuple[int, int]=(20, 6)
     ) -> None:
         """
         绘制类构造函数
@@ -82,13 +82,25 @@ class Plot:
 
                 np_value = np.array(value)
                 np_shape = np_value.shape
-                if len(np_shape) > 1:
-                    self.channel = min(self.channel, np_shape[-1])
-                    value = np_value[:, self.channel].tolist()
 
-                plt.plot([x + 1 for x in range(len(value))], value, label=self.log_signs[log_dir])
-                plt.grid(True)
-                plt.legend()
+                need_plot = True
+                if len(np_shape) > 1:
+                    if isinstance(self.channel, int):
+                        self.channel = min(self.channel, np_shape[-1])
+                        value = np_value[:, self.channel].tolist()
+                    else:
+                        need_plot = False
+                        for channel in self.channel:
+                            channel = min(channel, np_shape[-1])
+                            value = np_value[:, channel].tolist()
+                            plt.plot([x + 1 for x in range(len(value))], value, label=self.log_signs[log_dir] + f'_CHANNEL_{channel + 1}')
+                            plt.grid(True)
+                            plt.legend()
+
+                if need_plot:
+                    plt.plot([x + 1 for x in range(len(value))], value, label=self.log_signs[log_dir])
+                    plt.grid(True)
+                    plt.legend()
 
                 if 'dice' in key: print(f'{self.log_signs[log_dir]}-best {key}: {max(value)}')
                 elif 'loss' in key: print(f'{self.log_signs[log_dir]}-best {key}: {min(value)}')
@@ -369,11 +381,11 @@ if __name__ == '__main__':
     plot = Plot(
         root_dir='./checkpoint',
         process_seq=[
-            # { 'func': ModifyMethods.filter_kwargs, 'args': ['select', { 'model': 'UNet3D' }] }
+            {'func': ModifyMethods.filter_ctime, 'args': [datetime(2025, 8, 20), datetime(2025, 8, 31)]},
             {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'model': 'UNet3D'}]}
         ],
         sign_filter={'mode': 'omit', 'args': ['*obj']},
-        channel=1,
+        channel=[0, 1],
         plot_col=3,
         file_ext='.pt',
         file_seg='_',

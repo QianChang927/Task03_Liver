@@ -41,7 +41,7 @@ class ArgParser:
         parser.add_argument('--samp_size', type=__parse_tuple, default="(128, 128, 64)", help='数据预处理中随机采样后patch的张量大小')
 
         # Model相关设置
-        parser.add_argument('--model', type=str, choices=['UNet3D', 'VNet3D', 'UNetMONAI', 'VNetMONAI'], help='需要调用的模型名')
+        parser.add_argument('--model', type=str, choices=['UNet3D', 'VNet3D', 'ResNet34', 'ResNet50', 'UNetMONAI', 'VNetMONAI'], help='需要调用的模型名')
         parser.add_argument('--judge_channel', type=int, default=-1, help='损失函数训练通道选择')
         parser.add_argument('--in_channels', type=int, default=1, help='模型输入通道')
         parser.add_argument('--out_channels', type=int, default=2, help='模型输出通道')
