@@ -230,7 +230,7 @@ class DownSample(nn.Module):
         super(DownSample, self).__init__()
         if norm_type is None: norm_type = nn.Identity
         if norm_args is None: norm_args = {}
-        bias = False if self.norm_type != nn.Identity else True
+        bias = False if norm_type != nn.Identity else True
 
         self.down = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, 2, 2, 0, bias=bias),
@@ -278,7 +278,7 @@ class UpSample(nn.Module):
         super(UpSample, self).__init__()
         if norm_type is None: norm_type = nn.Identity
         if norm_args is None: norm_args = {}
-        bias = False if self.norm_type != nn.Identity else True
+        bias = False if norm_type != nn.Identity else True
 
         self.up = nn.Sequential(
             nn.ConvTranspose3d(in_channels, out_channels, 2, 2, 0, bias=bias),
