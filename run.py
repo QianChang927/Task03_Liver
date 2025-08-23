@@ -56,10 +56,19 @@ if __name__ == '__main__':
             norm_type=norm_type,
             norm_args=norm_args
         )
+    elif args.model == 'ResNet18':
+        model = ResNet.resnet18(
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
+            skip_type=args.resnet_type,
+            norm_type=norm_type,
+            norm_args=norm_args
+        )
     elif args.model == 'ResNet34':
         model = ResNet.resnet34(
             in_channels=args.in_channels,
             out_channels=args.out_channels,
+            skip_type=args.resnet_type,
             norm_type=norm_type,
             norm_args=norm_args
         )
@@ -67,6 +76,23 @@ if __name__ == '__main__':
         model = ResNet.resnet50(
             in_channels=args.in_channels,
             out_channels=args.out_channels,
+            skip_type=args.resnet_type,
+            norm_type=norm_type,
+            norm_args=norm_args
+        )
+    elif args.model == 'ResNet101':
+        model = ResNet.resnet101(
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
+            skip_type=args.resnet_type,
+            norm_type=norm_type,
+            norm_args=norm_args
+        )
+    elif args.model == 'ResNet152':
+        model = ResNet.resnet152(
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
+            skip_type=args.resnet_type,
             norm_type=norm_type,
             norm_args=norm_args
         )
