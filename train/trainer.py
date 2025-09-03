@@ -14,6 +14,19 @@ from argparse import Namespace
 from monai.data import DataLoader
 from .early_stopping import EarlyStopping
 
+def smart_print(message: str) -> None:
+    """
+    用于输出信息+保存日志
+    :param message: 需要输出的信息
+    :return:
+    """
+    print(message)
+    if not CONFIG.SAVE_LOG or CONFIG.SAVE_DIR is None:
+        return
+    with open(os.path.join(CONFIG.SAVE_DIR, 'log.txt'), 'a') as f:
+        f.write(message + '\n')
+
+
 class CONFIG:
     """
     用于保存常量的配置类
@@ -22,6 +35,8 @@ class CONFIG:
     SW_BATCH_SIZE: int = 2
     OUT_CHANNELS: int = 2
     JUDGE_CHANNEL: int = -1
+    SAVE_LOG: bool = True
+    SAVE_DIR: str = None
 
 
 class Trainer:
@@ -41,6 +56,7 @@ class Trainer:
         batch_process: Callable[[dict, device], tuple[Tensor, Tensor]]=None,
         valid_interval: int=5,
         judge_channel: int=-1,
+        save_log: bool=True,
         args: Namespace=None
     ) -> None:
         """
@@ -59,6 +75,7 @@ class Trainer:
         :param batch_process: batch处理函数：batch_process(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]
         :param valid_interval: 验证间隔
         :param judge_channel: 训练/验证过程损失/dice通道选择
+        :param save_log: 是否保存日志
         :param args: 命令行参数解析器
         :return:
         """
@@ -66,6 +83,9 @@ class Trainer:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         else:
             self.device = device
+
+        CONFIG.SAVE_LOG = save_log
+        CONFIG.SAVE_DIR = save_dir
 
         if args is not None:
             CONFIG.ROI_SIZE = args.roi_size
@@ -99,9 +119,10 @@ class Trainer:
         :param epochs: 训练轮次
         :return:
         """
+
         for epoch in range(epochs):
-            print(f"{f'Epoch {epoch + 1}/{epochs}':-^60}")
-            print(f"lr: {self.optimizer.state_dict()['param_groups'][0]['lr']:.8f}")
+            smart_print(f"{f'Epoch {epoch + 1}/{epochs}':-^60}")
+            smart_print(f"lr: {self.optimizer.state_dict()['param_groups'][0]['lr']:.8f}")
 
             self.model.train()
             train_criteria = self.train_process(self.model, self.train_loader, self.batch_process,
@@ -120,8 +141,8 @@ class Trainer:
                     self.early_stopping(epoch, valid_criteria, 'valid')
 
             if self.early_stopping.early_stop:
-                print(f"{'':-^60}")
-                print(f"Early stop: {epoch + 1}/{epochs}")
+                smart_print(f"{'':-^60}")
+                smart_print(f"Early stop: {epoch + 1}/{epochs}")
                 self.early_stopping.end_display()
                 break
 
@@ -193,7 +214,7 @@ class TrainerMethods:
 
             epoch_loss += _loss
             epoch_dice += __calc_dice(_outputs, labels)
-            print(f"{train_step}/{len(data_loader)}, train loss: {_loss:.4f}")
+            smart_print(f"{train_step}/{len(data_loader)}, train loss: {_loss:.4f}")
 
         epoch_loss /= train_step
         epoch_dice /= train_step
@@ -241,6 +262,12 @@ class TrainerMethods:
         post_label = transforms.Compose([
             transforms.AsDiscrete(to_onehot=CONFIG.OUT_CHANNELS)
         ])
+        # post_pred = transforms.Compose([
+        #     transforms.Activations(sigmoid=True),
+        #     transforms.AsDiscrete(threshold=0.5),
+        #     transforms.KeepLargestConnectedComponent(applied_labels=[1])
+        # ])
+        # post_label = transforms.AsDiscrete()
 
         for batch in data_loader:
             images, labels = batch_process(batch, device)
@@ -272,6 +299,7 @@ class TrainerMethods:
         :return: 返回解析后的batch，该默认函数的返回类型为(Tensor, Tensor)
         """
         image, label = batch['image'], batch['label']
-        label = label.int() & 1
+        mask = (label.int() - 2) >> 31
+        label = (label.int() & mask) | (1 & ~mask)
         label = label.float()
         return image.to(device), label.to(device)

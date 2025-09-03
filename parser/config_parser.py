@@ -94,7 +94,7 @@ class ConfigParser:
             for transform in transforms:
                 transform_keys = list(inspect.signature(type(transform)).parameters)
                 transform_dict = ConfigParser.__get_total_dict(transform.__dict__)
-                transform_name = ConfigParser.__get_obj_name(transform)
+                transform_name = ConfigParser.get_obj_name(transform)
                 transform_info = {}
                 for k in transform_keys:
                     dict_key = ConfigParser.__search_key(transform_dict, k)
@@ -108,7 +108,7 @@ class ConfigParser:
         :return:
         """
         if self.model is None: return
-        model_name = ConfigParser.__get_obj_name(self.model)
+        model_name = ConfigParser.get_obj_name(self.model)
         self.config_model = {model_name: str(self.model)}
 
     def __parse_others(self, parse_mode: Literal['loss_fn', 'optimizer', 'scheduler', 'trainer', 'early_stopping']) -> None:
@@ -122,7 +122,7 @@ class ConfigParser:
         if config_obj is None: return
         config_keys = list(inspect.signature(type(config_obj)).parameters)
         config_dict = ConfigParser.__get_total_dict(config_obj.__dict__)
-        config_name = ConfigParser.__get_obj_name(config_obj)
+        config_name = ConfigParser.get_obj_name(config_obj)
         config_info = {}
         for key in config_keys:
             if hasattr(self, key): continue
@@ -177,7 +177,7 @@ class ConfigParser:
             self.config_args.update({f'{key_name}-obj': hash_hex_str})
 
     @staticmethod
-    def __get_obj_name(obj: partial | InnerClass) -> str:
+    def get_obj_name(obj: partial | InnerClass) -> str:
         """
         获取类名
         :param obj: 需要获取名字的类

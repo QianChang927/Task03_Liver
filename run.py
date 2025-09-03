@@ -121,12 +121,20 @@ if __name__ == '__main__':
     else:
         raise ValueError()
 
+    save_dir += f'_{ConfigParser.get_obj_name(model)}'
+
     loss_fn = DiceLoss(
         include_background=True,
         to_onehot_y=True,
         softmax=True,
         reduction="none"
     )
+    # loss_fn = DiceLoss(
+    #     include_background=True,
+    #     to_onehot_y=True,
+    #     sigmoid=True,
+    #     reduction="none"
+    # )
 
     if args.optimizer == 'Adam':
         optimizer = torch.optim.Adam(
