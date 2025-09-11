@@ -11,7 +11,7 @@ from repeat import RepeatSetter
 
 from torch import nn
 from datetime import datetime
-from monai.losses import DiceLoss
+from monai.losses import DiceLoss, DiceCELoss
 
 if __name__ == '__main__':
     parser = ArgParser()
@@ -123,12 +123,18 @@ if __name__ == '__main__':
 
     save_dir += f'_{ConfigParser.get_obj_name(model)}'
 
-    loss_fn = DiceLoss(
-        include_background=True,
+    loss_fn = DiceCELoss(
+        include_background=False,
         to_onehot_y=True,
         softmax=True,
-        reduction="none"
+        reduction="mean"
     )
+    # loss_fn = DiceLoss(
+    #     include_background=True,
+    #     to_onehot_y=True,
+    #     softmax=True,
+    #     reduction="none"
+    # )
     # loss_fn = DiceLoss(
     #     include_background=True,
     #     to_onehot_y=True,
@@ -152,7 +158,7 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimizer,
         mode='max',
-        factor=0.1,
+        factor=0.5,
         patience=args.epochs // 50,
         threshold=1e-05,
         threshold_mode='rel',
@@ -164,9 +170,10 @@ if __name__ == '__main__':
     early_stopping = EarlyStopping(
         model=model,
         save_dir=save_dir,
-        patience=args.epochs // 10,
-        min_delta=1e-03,
-        stop_criterion='valid',
+        patience=args.epochs // 5,
+        min_delta=1e-05,
+        stop_criterion='train',
+        save_criterion='valid',
         save_interval=5,
         verbose=True
     )

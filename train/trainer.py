@@ -189,6 +189,11 @@ class TrainerMethods:
             valid_keys = set(init_params.keys())
             loss_fn_dict = loss_fn.__dict__
             filtered_dict = { key: value for key, value in loss_fn_dict.items() if key in valid_keys }
+            if 'to_onehot_y' not in filtered_dict: filtered_dict['to_onehot_y'] = True
+            if 'softmax' not in filtered_dict and 'sigmoid' not in filtered_dict:
+                if CONFIG.OUT_CHANNELS != 1: filtered_dict['softmax'] = True
+                else: filtered_dict['sigmoid'] = True
+            filtered_dict.update({'reduction': 'none'})
             dice_loss = DiceLoss(**filtered_dict)
             loss = dice_loss(y_pred, y)
             if len(loss.shape) > 1: loss = loss[:, CONFIG.JUDGE_CHANNEL].mean()
@@ -280,7 +285,7 @@ class TrainerMethods:
         dice_metric.reset()
 
         if scheduler is not None:
-            if len(dice) > 1:
+            if len(dice.shape) > 1:
                 dice_judge = dice[CONFIG.JUDGE_CHANNEL].item()
                 dice = dice.tolist()
             else:
@@ -299,7 +304,5 @@ class TrainerMethods:
         :return: 返回解析后的batch，该默认函数的返回类型为(Tensor, Tensor)
         """
         image, label = batch['image'], batch['label']
-        mask = (label.int() - 2) >> 31
-        label = (label.int() & mask) | (1 & ~mask)
-        label = label.float()
+        label[label > 1] = 1
         return image.to(device), label.to(device)

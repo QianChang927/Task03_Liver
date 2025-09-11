@@ -34,7 +34,7 @@ class ArgParser:
 
         # DataReader相关设置
         parser.add_argument('--remains', type=int, default=None, help='训练-验证集的数据个数，该参数为None时选取所有数据作为训练-验证集')
-        parser.add_argument('--val_scale', type=float, default=0.1, help='训练-验证集中验证集所占的比例(默认为0.1)，训练/验证集中均至少含有一个数据')
+        parser.add_argument('--val_scale', type=float, default=0.25, help='训练-验证集中验证集所占的比例(默认为0.25)，训练/验证集中均至少含有一个数据')
         parser.add_argument('--num_workers_cache', type=int, default=4, help='CacheDataset加载数据的进程数')
         parser.add_argument('--num_workers_loader', type=int, default=4, help='DataLoader加载数据的进程数')
         parser.add_argument('--crop_size', type=__parse_tuple, default="(128, 128, 64)", help='数据预处理中填充/Resize后的张量大小')

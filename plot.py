@@ -383,7 +383,7 @@ if __name__ == '__main__':
         process_seq=[
             # {'func': ModifyMethods.filter_ctime, 'args': [datetime(2025, 8, 20), datetime(2025, 8, 31)]},
             # {'func': ModifyMethods.filter_kwargs, 'args': ['omit', {'resnet_type': 'A'}]},
-            # {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'model': 'ResNet50'}]}
+            {'func': ModifyMethods.filter_kwargs, 'args': ['select', {'lr': 1e-04}]}
         ],
         sign_filter={'mode': 'omit', 'args': ['*obj']},
         channel=[0, 1],
